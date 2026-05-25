@@ -4,5 +4,5 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - ./docs:/docs
+      - ${HOME}:/mnt/host:ro
     restart: unless-stopped
