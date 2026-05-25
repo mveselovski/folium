@@ -1,0 +1,30 @@
+{
+  "name": "folium",
+  "version": "0.1.0",
+  "description": "Local document browser for md, docx, xlsx, csv, html and txt files",
+  "main": "folium.js",
+  "bin": {
+    "folium": "./folium.js"
+  },
+  "scripts": {
+    "start": "node folium.js"
+  },
+  "keywords": [
+    "document",
+    "viewer",
+    "browser",
+    "markdown",
+    "docx",
+    "xlsx",
+    "local",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.0",
+    "mammoth": "^1.6.0",
+    "marked": "^9.0.0",
+    "xlsx": "^0.18.0"
+  }
+}
