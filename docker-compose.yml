@@ -1,0 +1,8 @@
+services:
+  folium:
+    image: ghcr.io/mveselovski/folium:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./docs:/docs
+    restart: unless-stopped
