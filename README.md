@@ -1,4 +1,12 @@
-# Folium
+<h1 align="center">Folium</h1>
+
+<p align="center">
+  <a href="https://github.com/mveselovski/folium/actions/workflows/docker-build-push.yml">
+    <img src="https://github.com/mveselovski/folium/actions/workflows/docker-build-push.yml/badge.svg" alt="Build and Push Docker Image">
+  </a>
+</p>
+
+> ⚠️ **Platform support:** macOS and Linux only. Windows is not currently supported.
 
 A lightweight local document browser. Point it at a folder and browse your files — markdown, Word, Excel, CSV, HTML, and plain text — in the browser with a clean light/dark UI.
 
