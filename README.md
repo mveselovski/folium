@@ -80,6 +80,26 @@ docker rmi folium
 ./folium.sh
 ```
 
+### With Docker Compose
+
+```bash
+docker compose up
+```
+
+This pulls the pre-built image from `ghcr.io/mveselovski/folium:latest`, mounts your home directory read-only, and serves Folium on [http://localhost:3000](http://localhost:3000).
+
+To run in the background:
+
+```bash
+docker compose up -d
+```
+
+To stop:
+
+```bash
+docker compose down
+```
+
 ## Project structure
 
 ```
