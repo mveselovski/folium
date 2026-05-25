@@ -82,32 +82,34 @@ docker rmi folium
 
 ### With Docker Compose
 
+The easiest way to get started — no flags, no arguments. Just run:
+
 ```bash
 docker compose up
 ```
 
-This pulls the pre-built image from `ghcr.io/mveselovski/folium:latest`, mounts your home directory read-only, and serves Folium on [http://localhost:3000](http://localhost:3000).
+Folium will be available at [http://localhost:3000](http://localhost:3000). Your home directory is mounted read-only at `/mnt/host` so you can browse all your files. The image is pulled automatically from `ghcr.io/mveselovski/folium:latest`.
 
-To run in the background:
+Run in the background with:
 
 ```bash
 docker compose up -d
-```
-
-To stop:
-
-```bash
-docker compose down
+docker compose down   # to stop
 ```
 
 ## Project structure
 
 ```
 folium/
-├── folium.js      # the entire app — server + embedded UI
-├── folium.sh      # Docker convenience wrapper
+├── .github/
+│   └── workflows/
+│       └── docker-build-push.yml  # CI: builds & pushes image to ghcr.io
+├── folium.js          # the entire app — server + embedded UI
+├── folium.sh          # Docker convenience wrapper
+├── docker-compose.yml
 ├── Dockerfile
 ├── package.json
+├── LICENSE
 └── README.md
 ```
 
