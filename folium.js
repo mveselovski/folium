@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * folium — local document browser
- * Usage: node folium.js [directory] [--port 3000]
+ * Usage: node folium.js [directory] [--port 3000] [--host 127.0.0.1]
  *        node folium.js               ← opens with a directory picker
  *
  * Install deps once:  npm install express marked mammoth xlsx
@@ -16,12 +16,20 @@ const os      = require("os");
 const args = process.argv.slice(2);
 let docsDir = null;
 let port = 3000;
+let host;
 for (let i = 0; i < args.length; i++) {
   if (args[i] === "--port" && args[i + 1]) { port = parseInt(args[++i]); }
+  else if (args[i] === "--host" && args[i + 1]) { host = args[++i]; }
   else if (!args[i].startsWith("--")) { docsDir = path.resolve(args[i]); }
 }
 if (docsDir && !fs.existsSync(docsDir)) {
   console.error(`Directory not found: ${docsDir}`); process.exit(1);
+}
+
+// Launched by Folium.app: exit when the app goes away and stdin closes.
+if (process.env.FOLIUM_EXIT_ON_STDIN_EOF) {
+  process.stdin.on("end", () => process.exit(0));
+  process.stdin.resume();
 }
 
 // ─── Lazy require ─────────────────────────────────────────────────────────────
@@ -621,6 +629,9 @@ function joinPath(base, name) {
 /* ═══════════════════════════════════════
    PICKER
    ═══════════════════════════════════════ */
+// Set when running inside Folium.app — folder picking uses the native dialog.
+var nativeBridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.folium;
+
 function openPicker(canCancel) {
   document.getElementById('pickerMsg').style.display = 'none';
   document.getElementById('btnPickerCancel').style.display = canCancel ? '' : 'none';
@@ -721,6 +732,7 @@ document.getElementById('pickerOverlay').addEventListener('click', function(e) {
   if (document.getElementById('btnPickerCancel').style.display !== 'none') closePicker();
 });
 document.getElementById('btnChangeDir').addEventListener('click', function() {
+  if (nativeBridge) { nativeBridge.postMessage('pickFolder'); return; }
   pickerSelectedPath = '';
   var label = document.getElementById('pickerSelLabel');
   label.textContent = 'No folder selected';
@@ -926,6 +938,7 @@ function setupTabs(viewer) {
 (async function init() {
   var meta = await fetch('/api/meta').then(function(r) { return r.json(); });
   if (meta.dir) { loadTree(); }
+  else if (nativeBridge) { nativeBridge.postMessage('pickFolder'); }
   else { openPicker(false); }
 })();
 </script>
@@ -934,8 +947,8 @@ function setupTabs(viewer) {
 
 app.get("/", (_req, res) => res.send(HTML));
 
-app.listen(port, () => {
-  console.log(`\n  docview running at  http://localhost:${port}`);
+app.listen(port, host, () => {
+  console.log(`\n  folium running at  http://${host || "localhost"}:${port}`);
   if (docsDir) console.log(`  Serving directory:  ${docsDir}`);
   else         console.log(`  No directory set — pick one in the browser`);
   console.log();

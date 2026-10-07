@@ -6,6 +6,9 @@
   "bin": {
     "folium": "./folium.js"
   },
+  "files": [
+    "folium.js"
+  ],
   "scripts": {
     "start": "node folium.js"
   },
@@ -19,12 +22,19 @@
     "local",
     "cli"
   ],
-  "author": "",
+  "author": "Michael Veselovski",
   "license": "MIT",
   "dependencies": {
     "express": "^4.18.0",
     "mammoth": "^1.6.0",
     "marked": "^9.0.0",
     "xlsx": "^0.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mveselovski/folium.git"
   }
 }

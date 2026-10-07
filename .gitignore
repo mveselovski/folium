@@ -19,3 +19,8 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# macOS app build output
+build/
+dist/
+macos/.build/
