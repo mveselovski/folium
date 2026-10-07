@@ -92,6 +92,24 @@ function browsePath(p) {
 }
 
 // ─── File renderer ────────────────────────────────────────────────────────────
+// Decodes a text file whose encoding isn't declared: BOM first, then strict UTF-8,
+// then a legacy 8-bit code page. Cyrillic in windows-1251 shows up as runs of
+// high bytes (whole words); Western accents in windows-1252 are mostly isolated.
+function readText(abs) {
+  const buf = fs.readFileSync(abs);
+  if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) return buf.toString("utf8", 3);
+  if (buf[0] === 0xFF && buf[1] === 0xFE) return new TextDecoder("utf-16le").decode(buf.subarray(2));
+  if (buf[0] === 0xFE && buf[1] === 0xFF) return new TextDecoder("utf-16be").decode(buf.subarray(2));
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(buf); } catch {}
+  let high = 0, inRuns = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] < 0x80) continue;
+    high++;
+    if (buf[i - 1] >= 0x80 || buf[i + 1] >= 0x80) inRuns++;
+  }
+  return new TextDecoder(inRuns > high / 2 ? "windows-1251" : "windows-1252").decode(buf);
+}
+
 async function renderFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const abs = path.resolve(docsDir, filePath);
@@ -100,14 +118,14 @@ async function renderFile(filePath) {
 
   if (ext === ".md") {
     const { marked } = req("marked");
-    return { html: marked.parse(fs.readFileSync(abs,"utf8")), type:"html" };
+    return { html: marked.parse(readText(abs)), type:"html" };
   }
   if (ext === ".txt") {
-    return { html: "<pre class=\"txt\">" + escHtml(fs.readFileSync(abs,"utf8")) + "</pre>", type:"html" };
+    return { html: "<pre class=\"txt\">" + escHtml(readText(abs)) + "</pre>", type:"html" };
   }
   if (ext === ".csv") {
     const XLSX = req("xlsx");
-    const wb = XLSX.readFile(abs);
+    const wb = XLSX.read(readText(abs), { type: "string" });
     return { html: XLSX.utils.sheet_to_html(wb.Sheets[wb.SheetNames[0]]), type:"table" };
   }
   if (ext === ".xlsx") {

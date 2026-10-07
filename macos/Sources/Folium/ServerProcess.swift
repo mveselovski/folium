@@ -69,7 +69,8 @@ final class ServerProcess {
     }
 
     /// Polls the server until it answers, or fails if the process exits first.
-    func waitUntilReady(timeout: TimeInterval = 15) async throws {
+    /// The timeout is generous: a first launch can be slow while macOS scans or translates Node.
+    func waitUntilReady(timeout: TimeInterval = 120) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         let url = baseURL.appendingPathComponent("api/meta")
         while Date() < deadline {
