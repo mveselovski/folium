@@ -3,6 +3,7 @@
  * folium — local document browser
  * Usage: node folium.js [directory] [--port 3000] [--host 127.0.0.1]
  *        node folium.js               ← opens with a directory picker
+ *        node folium.js --help
  *
  * Install deps once:  npm install express marked mammoth xlsx
  */
@@ -13,12 +14,27 @@ const fs      = require("fs");
 const os      = require("os");
 
 // ─── CLI args ────────────────────────────────────────────────────────────────
+const { version } = require("./package.json");
+const USAGE = `folium ${version} — browse a folder of documents in your browser
+
+Usage: folium [directory] [options]
+
+  directory        folder to open (omit to pick one in the browser)
+
+Options:
+  --port <n>       port to listen on (default 3000)
+  --host <addr>    address to bind (default 127.0.0.1; 0.0.0.0 to share on your network)
+  -v, --version    print the version
+  -h, --help       show this help
+`;
 const args = process.argv.slice(2);
 let docsDir = null;
 let port = 3000;
-let host;
+let host = "127.0.0.1";
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--port" && args[i + 1]) { port = parseInt(args[++i]); }
+  if (args[i] === "--help" || args[i] === "-h") { process.stdout.write(USAGE); process.exit(0); }
+  else if (args[i] === "--version" || args[i] === "-v") { console.log(version); process.exit(0); }
+  else if (args[i] === "--port" && args[i + 1]) { port = parseInt(args[++i]); }
   else if (args[i] === "--host" && args[i + 1]) { host = args[++i]; }
   else if (!args[i].startsWith("--")) { docsDir = path.resolve(args[i]); }
 }
@@ -33,8 +49,14 @@ if (process.env.FOLIUM_EXIT_ON_STDIN_EOF) {
 }
 
 // ─── Lazy require ─────────────────────────────────────────────────────────────
+// Static require() calls so the standalone build can bundle them.
+const LOADERS = {
+  marked:  () => require("marked"),
+  mammoth: () => require("mammoth"),
+  xlsx:    () => require("xlsx"),
+};
 function req(mod) {
-  try { return require(mod); }
+  try { return LOADERS[mod](); }
   catch {
     console.error(`\nMissing dependency: ${mod}\nRun:  npm install express marked mammoth xlsx\n`);
     process.exit(1);
@@ -966,7 +988,8 @@ function setupTabs(viewer) {
 app.get("/", (_req, res) => res.send(HTML));
 
 app.listen(port, host, () => {
-  console.log(`\n  folium running at  http://${host || "localhost"}:${port}`);
+  const shown = host === "127.0.0.1" || host === "0.0.0.0" ? "localhost" : host;
+  console.log(`\n  folium running at  http://${shown}:${port}`);
   if (docsDir) console.log(`  Serving directory:  ${docsDir}`);
   else         console.log(`  No directory set — pick one in the browser`);
   console.log();

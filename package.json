@@ -1,6 +1,6 @@
 {
   "name": "folium",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Local document browser for md, docx, xlsx, csv, html and txt files",
   "main": "folium.js",
   "bin": {
@@ -36,5 +36,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mveselovski/folium.git"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "postject": "1.0.0-alpha.6"
   }
 }
