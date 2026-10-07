@@ -2,8 +2,8 @@ cask "folium" do
   arch arm: "arm64", intel: "x64"
 
   version "0.1.0"
-  sha256 arm:   "0000000000000000000000000000000000000000000000000000000000000000",
-         intel: "0000000000000000000000000000000000000000000000000000000000000000"
+  sha256 arm:   "98fbbcb5ed0c7c0c8025309d3c7ff5c0b21e649ca9855689be09a99da1fefd54",
+         intel: "c569367ca972a011bda8b32d8cac087e22ef2df08b7293f18fbdf0e4f08f8439"
 
   url "https://github.com/mveselovski/folium/releases/download/v#{version}/Folium-#{version}-#{arch}.dmg"
   name "Folium"
