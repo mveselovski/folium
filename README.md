@@ -1,8 +1,8 @@
 <h1 align="center">Folium</h1>
 
 <p align="center">
-  <a href="https://github.com/mveselovski/folium/actions/workflows/docker-build-push.yml">
-    <img src="https://github.com/mveselovski/folium/actions/workflows/docker-build-push.yml/badge.svg" alt="Build and Push Docker Image">
+  <a href="https://github.com/mveselovski/folium/actions/workflows/release.yml">
+    <img src="https://github.com/mveselovski/folium/actions/workflows/release.yml/badge.svg" alt="Release">
   </a>
 </p>
 
@@ -19,7 +19,7 @@ A lightweight local document browser. Point it at a folder and browse your files
 - **Excel sheet tabs** — multi-sheet `.xlsx` files show a tab switcher
 - **HTML sandboxed preview** — renders HTML files in an isolated iframe with an "open in new tab" link
 - **Single file** — everything in one `folium.js`, no build step
-- **Docker support** — run without installing Node locally
+- **Homebrew install** — `brew install` and run, or keep it running with `brew services`
 
 ## Supported formats
 
@@ -33,6 +33,56 @@ A lightweight local document browser. Point it at a folder and browse your files
 | Plain text | `.txt` | pre block |
 
 ## Quick start
+
+### macOS app
+
+Download the `.dmg` for your Mac (Apple Silicon: `arm64`, Intel: `x64`) from the [latest release](https://github.com/mveselovski/folium/releases/latest) and drag **Folium** to Applications — or install it with Homebrew:
+
+```bash
+brew tap mveselovski/folium https://github.com/mveselovski/folium
+brew install --cask folium
+```
+
+Folium.app is self-contained (Node.js is bundled) and signed and notarized by Apple. Open a folder with **File → Open Folder…** (⌘O) or drop one on the Dock icon; it reopens the last folder on launch. Its server listens on `127.0.0.1` only.
+
+### Command line, with Homebrew
+
+```bash
+# Install (one time)
+brew tap mveselovski/folium https://github.com/mveselovski/folium
+brew install folium            # the CLI formula (the app is --cask folium)
+
+# Open with directory picker
+folium
+
+# Open a specific folder
+folium ~/Documents
+
+# Custom port
+folium ~/Documents --port 8080
+
+# Only listen on this machine
+folium ~/Documents --host 127.0.0.1
+```
+
+Then open [http://localhost:3000](http://localhost:3000).
+
+To keep Folium running in the background (and start it at login):
+
+```bash
+brew services start folium
+brew services stop folium   # to stop
+```
+
+The service listens on port 3000 and opens with the directory picker. Logs go to `$(brew --prefix)/var/log/folium.log`.
+
+To upgrade:
+
+```bash
+brew update && brew upgrade folium
+```
+
+Folium only ever reads your files — it never writes to them.
 
 ### With Node.js
 
@@ -48,54 +98,33 @@ node folium.js ~/Documents
 
 # Custom port
 node folium.js ~/Documents --port 8080
-
-# Or via npx (no install needed)
-npx folium ./my-docs
 ```
 
-Then open [http://localhost:3000](http://localhost:3000).
+## Releasing
 
-### With Docker
+1. Bump `version` in `package.json` and merge to `main`.
+2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`
 
-```bash
-# Make the script executable (one time)
-chmod +x folium.sh
+   The [release workflow](.github/workflows/release.yml) creates the GitHub release and updates `url`/`sha256` in [`Formula/folium.rb`](Formula/folium.rb) on `main`.
+3. Pull `main`, then build, sign and notarize the app on your Mac:
 
-# Open with directory picker (mounts your home dir)
-./folium.sh
+   ```bash
+   macos/build.sh
+   ```
 
-# Open a specific folder directly
-./folium.sh ~/Documents
+   This writes `dist/Folium-<version>-{arm64,x64}.dmg` and updates [`Casks/folium.rb`](Casks/folium.rb). Upload the dmgs to the release and commit the cask:
 
-# Custom port
-./folium.sh ~/Documents --port 8080
-```
+   ```bash
+   gh release upload v0.2.0 dist/Folium-0.2.0-*.dmg
+   git commit -am "Folium.app 0.2.0" && git push
+   ```
 
-The Docker container mounts your filesystem **read-only** — Folium never writes to your files.
+One-time signing setup for `macos/build.sh`:
 
-To rebuild the image after updating `folium.js`:
+- Xcode → Settings → Accounts → Manage Certificates → **+** → *Developer ID Application*
+- `xcrun notarytool store-credentials folium-notary --apple-id <apple-id> --team-id <team-id>` (with an app-specific password from [appleid.apple.com](https://appleid.apple.com))
 
-```bash
-docker rmi folium
-./folium.sh
-```
-
-### With Docker Compose
-
-The easiest way to get started — no flags, no arguments. Just run:
-
-```bash
-docker compose up
-```
-
-Folium will be available at [http://localhost:3000](http://localhost:3000). Your home directory is mounted read-only at `/mnt/host` so you can browse all your files. The image is pulled automatically from `ghcr.io/mveselovski/folium:latest`.
-
-Run in the background with:
-
-```bash
-docker compose up -d
-docker compose down   # to stop
-```
+`SKIP_NOTARIZE=1 macos/build.sh` builds a signed app without notarizing, for local testing.
 
 ## Project structure
 
@@ -103,11 +132,16 @@ docker compose down   # to stop
 folium/
 ├── .github/
 │   └── workflows/
-│       └── docker-build-push.yml  # CI: builds & pushes image to ghcr.io
+│       └── release.yml  # CI: GitHub release + Homebrew formula bump on tag
+├── Casks/
+│   └── folium.rb      # Homebrew cask for Folium.app
+├── Formula/
+│   └── folium.rb      # Homebrew formula (CLI)
+├── macos/             # native macOS app: Swift/WebKit wrapper + build script
+│   ├── Sources/Folium/
+│   ├── Icon/make-icon.swift
+│   └── build.sh       # build, sign, notarize, package dmg
 ├── folium.js          # the entire app — server + embedded UI
-├── folium.sh          # Docker convenience wrapper
-├── docker-compose.yml
-├── Dockerfile
 ├── package.json
 ├── LICENSE
 └── README.md

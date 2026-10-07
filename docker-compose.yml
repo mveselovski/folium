@@ -1,8 +1,0 @@
-services:
-  folium:
-    image: ghcr.io/mveselovski/folium:latest
-    ports:
-      - "3000:3000"
-    volumes:
-      - ${HOME}:/mnt/host:ro
-    restart: unless-stopped
