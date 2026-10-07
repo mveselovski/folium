@@ -1,8 +1,8 @@
 class Folium < Formula
   desc "Local document browser for md, docx, xlsx, csv, html and txt files"
   homepage "https://github.com/mveselovski/folium"
-  url "https://github.com/mveselovski/folium/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "3c485f082a93a81777d7c2890a859392b53ce4027d3854405643203d84be3a3e"
+  url "https://github.com/mveselovski/folium/archive/refs/tags/v0.1.1.tar.gz"
+  sha256 "f643c39f692ee793c3df53a9527f1597d8df400d3e568d777d0b6ac1c0628a51"
   license "MIT"
   head "https://github.com/mveselovski/folium.git", branch: "main"
 
