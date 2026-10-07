@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
     private var webView: WKWebView?
     private var pendingFolder: URL?
+    private var isServerReady = false
 
     // MARK: - Lifecycle
 
@@ -29,11 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Folders dropped on the Dock icon or opened with "Open With → Folium".
     func application(_ application: NSApplication, open urls: [URL]) {
         guard let folder = urls.first(where: \.hasDirectoryPath) else { return }
-        if let server, server.isRunning, webView?.url != nil {
-            useFolder(folder)
-        } else {
-            pendingFolder = folder
-        }
+        useFolder(folder)
     }
 
     // MARK: - Server
@@ -51,10 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let server = ServerProcess(port: port)
         self.server = server
+        showStartingPage()
         Task { @MainActor in
             do {
                 try server.start(folder: folder)
                 try await server.waitUntilReady()
+                isServerReady = true
                 webView?.load(URLRequest(url: server.baseURL))
             } catch {
                 showFatalError(error)
@@ -70,7 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func useFolder(_ folder: URL) {
-        guard let server else { return }
+        // Folders chosen while the server is still starting are applied once the page loads.
+        guard let server, isServerReady else {
+            pendingFolder = folder
+            updateTitle(folder: folder)
+            return
+        }
         Task { @MainActor in
             do {
                 try await server.setFolder(folder)
@@ -82,6 +86,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let window { alert.beginSheetModal(for: window, completionHandler: nil) } else { alert.runModal() }
             }
         }
+    }
+
+    /// Shown until the server answers; the first launch can take a while
+    /// (Gatekeeper's first-run scan, or Rosetta translating Node on Apple silicon).
+    private func showStartingPage() {
+        webView?.loadHTMLString("""
+            <html><body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
+              font:13px -apple-system,sans-serif;color:#888;background:Canvas;color-scheme:light dark">
+            Starting Folium…</body></html>
+            """, baseURL: nil)
     }
 
     private func showFatalError(_ error: Error) {
