@@ -50,3 +50,44 @@ jobs:
           git add Formula/folium.rb
           git commit -m "folium ${GITHUB_REF_NAME}"
           git push origin main
+
+  linux-binaries:
+    needs: release
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.21.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build standalone binary
+        run: scripts/build-standalone.sh
+
+      - name: Smoke test
+        run: |
+          DIR="$(mktemp -d)"
+          tar -xzf dist/folium-*-linux-${{ matrix.arch }}.tar.gz -C "$DIR"
+          printf '# Привіт\n' > "$DIR/test.md"
+          "$DIR"/folium-*/folium "$DIR" --port 4000 &
+          sleep 2
+          curl -fsS "http://127.0.0.1:4000/api/render?path=test.md" | grep -q 'Привіт'
+          kill %1
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${GITHUB_REF_NAME}" dist/folium-*-linux-${{ matrix.arch }}.tar.gz*
