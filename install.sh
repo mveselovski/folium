@@ -14,7 +14,7 @@ INSTALL_DIR="${FOLIUM_INSTALL_DIR:-$HOME/.local/bin}"
 fail() { echo "error: $*" >&2; exit 1; }
 
 if [ "$(uname -s)" != Linux ]; then
-  fail "this installer is for Linux. On macOS: brew tap $REPO https://github.com/$REPO && brew trust $REPO && brew install folium"
+  fail "this installer is for Linux. On macOS: brew install --cask mveselovski/tap/folium"
 fi
 case "$(uname -m)" in
   x86_64|amd64)  ARCH=x64 ;;

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Builds Folium.app, signs it with your Developer ID, notarizes it and packages a .dmg per architecture.
+# The Homebrew cask in mveselovski/homebrew-tap picks up the dmgs once they're on the GitHub release.
 #
 # Usage:
 #   macos/build.sh                 # arm64 + x64, signed and notarized
@@ -110,20 +111,10 @@ for ARCH in $ARCHS; do
   fi
 done
 
-log "Updating Casks/folium.rb"
-CASK="$ROOT/Casks/folium.rb"
-sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" "$CASK"
-for ARCH in $ARCHS; do
-  SHA="$(shasum -a 256 "$DIST/Folium-$VERSION-$ARCH.dmg" | cut -d' ' -f1)"
-  key=$([[ "$ARCH" == arm64 ]] && echo arm || echo intel)
-  sed -i '' -E "s/($key: *)\"[0-9a-f]{64}\"/\1\"$SHA\"/" "$CASK"
-done
-
 log "Done"
 ls -lh "$DIST"/Folium-"$VERSION"-*.dmg
 cat <<MSG
 
-Next: upload to the v$VERSION release and commit the cask:
+Next: upload to the v$VERSION release; the Homebrew cask updates itself within the hour:
   gh release upload v$VERSION $(for a in $ARCHS; do printf '%s ' "dist/Folium-$VERSION-$a.dmg"; done)
-  git commit -am "Folium.app $VERSION" && git push
 MSG

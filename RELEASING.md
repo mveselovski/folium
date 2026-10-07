@@ -4,9 +4,10 @@ A release produces:
 
 | Artifact | Built by |
 |---|---|
-| GitHub release + Homebrew formula bump | [release workflow](.github/workflows/release.yml), on tag push |
+| GitHub release | [release workflow](.github/workflows/release.yml), on tag push |
 | `folium-<version>-linux-{x64,arm64}.tar.gz` | release workflow, on tag push |
-| `Folium-<version>-{arm64,x64}.dmg` + cask bump | [`macos/build.sh`](macos/build.sh), on your Mac (needs your Developer ID) |
+| `Folium-<version>-{arm64,x64}.dmg` | [`macos/build.sh`](macos/build.sh), on your Mac (needs your Developer ID) |
+| Homebrew formula and cask bumps | [mveselovski/homebrew-tap](https://github.com/mveselovski/homebrew-tap)'s hourly update workflow — formula once the tag exists, cask once both dmgs are uploaded |
 
 ## Steps
 
@@ -17,18 +18,22 @@ A release produces:
    git tag -a v0.2.0 -m "Folium 0.2.0" && git push origin v0.2.0
    ```
 
-   The release workflow checks the tag matches `package.json`, creates the GitHub release, commits the new `url`/`sha256` to [`Formula/folium.rb`](Formula/folium.rb) on `main`, and builds, smoke-tests and uploads the Linux binaries.
-3. Pull `main`, then build, sign and notarize the macOS app:
+   The release workflow checks the tag matches `package.json`, creates the GitHub release, and builds, smoke-tests and uploads the Linux binaries.
+3. Build, sign and notarize the macOS app:
 
    ```bash
    macos/build.sh
    ```
 
-   This writes `dist/Folium-<version>-{arm64,x64}.dmg` and updates [`Casks/folium.rb`](Casks/folium.rb). Upload the dmgs and commit the cask:
+   This writes `dist/Folium-<version>-{arm64,x64}.dmg`. Upload them:
 
    ```bash
    gh release upload v0.2.0 dist/Folium-0.2.0-*.dmg
-   git commit -am "Folium.app 0.2.0" && git push
+   ```
+4. The tap's update workflow bumps the formula and cask within the hour. To do it immediately:
+
+   ```bash
+   gh workflow run update-folium.yml -R mveselovski/homebrew-tap
    ```
 
 ## One-time setup for macOS signing

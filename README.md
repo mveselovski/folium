@@ -44,9 +44,7 @@ It runs entirely on your computer. Folium never modifies your files and never up
 Download the `.dmg` for your Mac from the [latest release](https://github.com/mveselovski/folium/releases/latest) (`arm64` for Apple silicon, `x64` for Intel) and drag **Folium** to Applications. Or with Homebrew:
 
 ```bash
-brew tap mveselovski/folium https://github.com/mveselovski/folium
-brew trust mveselovski/folium
-brew install --cask folium
+brew install --cask mveselovski/tap/folium
 ```
 
 The app is signed and notarized by Apple and needs nothing else installed. Open a folder with **File → Open Folder…** (⌘O) or by dropping it on the Dock icon; Folium reopens the last folder next time.
@@ -54,12 +52,10 @@ The app is signed and notarized by Apple and needs nothing else installed. Open 
 ### macOS — command line
 
 ```bash
-brew tap mveselovski/folium https://github.com/mveselovski/folium
-brew trust mveselovski/folium
-brew install folium
+brew install mveselovski/tap/folium
 ```
 
-`brew trust` is needed because Folium comes from its own tap rather than Homebrew's core repository; Homebrew 7 won't install from a tap until you've trusted it.
+Both come from the [mveselovski/homebrew-tap](https://github.com/mveselovski/homebrew-tap) tap. Using the full `mveselovski/tap/…` name adds the tap and trusts the package in one step — Homebrew 7 otherwise refuses to install from taps outside its own repositories. Upgrade with `brew upgrade` as usual.
 
 ### Linux
 
@@ -71,7 +67,7 @@ This installs a single self-contained `folium` binary (Node.js built in) to `~/.
 
 To update, run the installer again. To uninstall, delete `~/.local/bin/folium`.
 
-Homebrew on Linux works too, with the same `brew tap`, `brew trust` and `brew install folium` as on macOS.
+Homebrew on Linux works too: `brew install mveselovski/tap/folium`.
 
 ### Windows
 
@@ -120,7 +116,7 @@ Folium is a single-file [Express](https://expressjs.com) server, [`folium.js`](f
 
 - **Folium.app** ([`macos/`](macos)) is a small native Swift window around the same server, with Node.js bundled inside.
 - **The Linux binary** is `folium.js` and its dependencies bundled into a Node.js [single executable](https://nodejs.org/api/single-executable-applications.html) ([`scripts/build-standalone.sh`](scripts/build-standalone.sh)).
-- **Homebrew** installs it from source with the [formula](Formula/folium.rb) and the app with the [cask](Casks/folium.rb).
+- **Homebrew** installs the command line from source and the app from its dmg, via [mveselovski/homebrew-tap](https://github.com/mveselovski/homebrew-tap).
 
 Maintainers: see [RELEASING.md](RELEASING.md).
 
