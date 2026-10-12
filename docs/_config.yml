@@ -1,0 +1,7 @@
+title: Folium
+description: A fast, read-only viewer for every document in a folder — Word, Excel, CSV, PDF, e-books, Markdown and more. Runs entirely on your computer.
+baseurl: /folium
+url: https://mveselovski.github.io
+repo: https://github.com/mveselovski/folium
+markdown: kramdown
+permalink: pretty

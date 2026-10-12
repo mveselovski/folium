@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  <a href="https://mveselovski.github.io/folium/">Website</a>
+</p>
+
+<p align="center">
   <a href="https://github.com/mveselovski/folium/releases/latest"><img src="https://img.shields.io/github/v/release/mveselovski/folium" alt="Latest release"></a>
   <a href="https://github.com/mveselovski/folium/actions/workflows/release.yml"><img src="https://github.com/mveselovski/folium/actions/workflows/release.yml/badge.svg" alt="Release"></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey" alt="macOS | Linux">
