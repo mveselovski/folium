@@ -5,7 +5,7 @@
  *        node folium.js               ← opens with a directory picker
  *        node folium.js --help
  *
- * Install deps once:  npm install express marked mammoth xlsx sanitize-html
+ * Install deps once:  npm install express marked mammoth xlsx sanitize-html @xmldom/xmldom jszip
  */
 
 const express = require("express");
@@ -55,11 +55,13 @@ const LOADERS = {
   mammoth: () => require("mammoth"),
   xlsx:    () => require("xlsx"),
   sanitizeHtml: () => require("sanitize-html"),
+  xmldom:  () => require("@xmldom/xmldom"),
+  jszip:   () => require("jszip"),
 };
 function req(mod) {
   try { return LOADERS[mod](); }
   catch {
-    console.error(`\nMissing dependency: ${mod}\nRun:  npm install express marked mammoth xlsx sanitize-html\n`);
+    console.error(`\nMissing dependency: ${mod}\nRun:  npm install express marked mammoth xlsx sanitize-html @xmldom/xmldom jszip\n`);
     process.exit(1);
   }
 }
@@ -101,7 +103,12 @@ function cleanHtml(html) {
 }
 
 // ─── File tree ────────────────────────────────────────────────────────────────
-const SUPPORTED = new Set([".md",".docx",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf"]);
+const SUPPORTED = new Set([".md",".docx",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf",".fb2",".fbz",".fb2.zip"]);
+
+// Like path.extname, but keeps the double extension of zipped FictionBooks.
+function fileExt(name) {
+  return /\.fb2\.zip$/i.test(name) ? ".fb2.zip" : path.extname(name).toLowerCase();
+}
 
 function buildTree(dir, base) {
   base = base || "";
@@ -116,8 +123,8 @@ function buildTree(dir, base) {
     if (e.isDirectory()) {
       const children = buildTree(full, rel);
       if (children.length) nodes.push({ type:"dir", name:e.name, path:rel, children });
-    } else if (SUPPORTED.has(path.extname(e.name).toLowerCase())) {
-      nodes.push({ type:"file", name:e.name, path:rel, ext:path.extname(e.name).slice(1).toLowerCase(), mtime: fs.statSync(full).mtimeMs });
+    } else if (SUPPORTED.has(fileExt(e.name))) {
+      nodes.push({ type:"file", name:e.name, path:rel, ext:fileExt(e.name).slice(1), mtime: fs.statSync(full).mtimeMs });
     }
   }
   return nodes.sort((a,b) => {
@@ -137,7 +144,7 @@ function browsePath(p) {
     if (e.name.startsWith(".")) continue;
     try {
       if (e.isDirectory()) dirs.push(e.name);
-      else if (SUPPORTED.has(path.extname(e.name).toLowerCase())) files.push(e.name);
+      else if (SUPPORTED.has(fileExt(e.name))) files.push(e.name);
     } catch { /* skip inaccessible */ }
   }
   dirs.sort((a,b) => a.localeCompare(b));
@@ -150,7 +157,9 @@ function browsePath(p) {
 // then a legacy 8-bit code page. Cyrillic in windows-1251 shows up as runs of
 // high bytes (whole words); Western accents in windows-1252 are mostly isolated.
 function readText(abs) {
-  const buf = fs.readFileSync(abs);
+  return decodeText(fs.readFileSync(abs));
+}
+function decodeText(buf) {
   if (buf[0] === 0xEF && buf[1] === 0xBB && buf[2] === 0xBF) return buf.toString("utf8", 3);
   if (buf[0] === 0xFF && buf[1] === 0xFE) return new TextDecoder("utf-16le").decode(buf.subarray(2));
   if (buf[0] === 0xFE && buf[1] === 0xFF) return new TextDecoder("utf-16be").decode(buf.subarray(2));
@@ -164,8 +173,114 @@ function readText(abs) {
   return new TextDecoder(inRuns > high / 2 ? "windows-1251" : "windows-1252").decode(buf);
 }
 
+// ─── FictionBook 2 ────────────────────────────────────────────────────────────
+// Converts FB2 XML to HTML by walking the tree and emitting only known tags, with all
+// text and attributes escaped; cleanHtml runs over the result as a second layer.
+const XLINK = "http://www.w3.org/1999/xlink";
+const FB2_TAGS = {
+  p:["p"], emphasis:["em"], strong:["strong"], strikethrough:["s"], sub:["sub"], sup:["sup"], code:["code"],
+  cite:["blockquote"], table:["table"], tr:["tr"], annotation:["div","annotation"],
+  subtitle:["p","subtitle"], epigraph:["blockquote","epigraph"], "text-author":["p","text-author"],
+  poem:["div","poem"], stanza:["div","stanza"], v:["p","verse"],
+};
+
+function escAttr(s) { return escHtml(s).replace(/"/g, "&quot;"); }
+
+async function readFb2(abs, ext) {
+  let buf = fs.readFileSync(abs);
+  if (ext !== ".fb2") {
+    const zip = await req("jszip").loadAsync(buf);
+    const entry = Object.values(zip.files).find(f => !f.dir && /\.fb2$/i.test(f.name));
+    if (!entry) throw new Error("No .fb2 file inside the archive");
+    // shortcut: trusts the size in the zip header, upgrade to a capped stream if bombs show up in practice
+    if (entry._data && entry._data.uncompressedSize > 100 * 1024 * 1024) throw new Error("Book is too large");
+    buf = await entry.async("nodebuffer");
+  }
+  // FB2 declares its encoding in the XML prolog (often windows-1251); fall back to detection.
+  const declared = /^<\?xml[^>]*encoding=["']([\w.:-]+)/.exec(buf.subarray(0, 200).toString("latin1"));
+  if (declared) try { return new TextDecoder(declared[1]).decode(buf); } catch { /* unknown label */ }
+  return decodeText(buf);
+}
+
+function renderFb2(xml) {
+  const { DOMParser } = req("xmldom");
+  const quiet = { warning() {}, error() {}, fatalError() {} };
+  let root;
+  try { root = new DOMParser({ errorHandler: quiet }).parseFromString(xml, "text/xml").documentElement; } catch {}
+  if (!root || root.localName !== "FictionBook") throw new Error("Not a valid FB2 file");
+
+  const kids = (el, name) => el ? Array.from(el.childNodes).filter(c => c.nodeType === 1 && (!name || c.localName === name)) : [];
+  const href = el => {
+    if (el.hasAttributeNS(XLINK, "href")) return el.getAttributeNS(XLINK, "href");
+    const a = Array.from(el.attributes).find(a => a.localName === "href");
+    return a ? a.value : "";
+  };
+  const images = {};
+  for (const b of kids(root, "binary")) {
+    const type = b.getAttribute("content-type");
+    if (/^image\/(png|jpeg|gif|webp)$/i.test(type)) images[b.getAttribute("id")] = "data:" + type + ";base64," + b.textContent.replace(/\s+/g, "");
+  }
+  const toc = [];
+  const idAttr = el => el.getAttribute("id") ? ' id="fb2-' + escAttr(el.getAttribute("id")) + '"' : "";
+
+  // depth = section nesting; a title inside depth d is h(d+1), so top-level chapters are h2.
+  function conv(node, depth) {
+    if (node.nodeType === 3 || node.nodeType === 4) return escHtml(node.data);
+    if (node.nodeType !== 1) return "";
+    const name = node.localName;
+    const inner = d => Array.from(node.childNodes).map(c => conv(c, d)).join("");
+    if (name === "section") {
+      const id = "fb2-" + (node.getAttribute("id") || "toc-" + toc.length);
+      const title = kids(node, "title")[0];
+      if (title && depth < 3) toc.push({ id, title: kids(title, "p").map(p => p.textContent.trim()).join(" ").replace(/\s+/g, " "), level: depth + 1 });
+      return '<section id="' + escAttr(id) + '">' + inner(depth + 1) + "</section>";
+    }
+    if (name === "title") {
+      const h = "h" + Math.min(Math.max(depth + 1, 2), 6);
+      return "<" + h + ">" + kids(node, "p").map(p => Array.from(p.childNodes).map(c => conv(c, depth)).join("")).join("<br>") + "</" + h + ">";
+    }
+    if (name === "empty-line") return '<div class="empty-line"></div>';
+    if (name === "image") {
+      const src = images[href(node).replace(/^#/, "")];
+      return src ? '<img src="' + src + '" alt="' + escAttr(node.getAttribute("alt") || "") + '">' : "";
+    }
+    if (name === "a") {
+      const target = href(node);
+      if (target.startsWith("#")) {
+        const a = '<a href="#fb2-' + escAttr(target.slice(1)) + '">' + inner(depth) + "</a>";
+        return node.getAttribute("type") === "note" ? "<sup>" + a + "</sup>" : a;
+      }
+      return /^https?:\/\//i.test(target) ? '<a href="' + escAttr(target) + '">' + inner(depth) + "</a>" : inner(depth);
+    }
+    if (name === "td" || name === "th") {
+      const span = ["colspan", "rowspan"].filter(a => /^\d+$/.test(node.getAttribute(a))).map(a => " " + a + '="' + node.getAttribute(a) + '"').join("");
+      return "<" + name + span + ">" + inner(depth) + "</" + name + ">";
+    }
+    const tag = FB2_TAGS[name];
+    if (!tag) return inner(depth);
+    return "<" + tag[0] + idAttr(node) + (tag[1] ? ' class="' + tag[1] + '"' : "") + ">" + inner(depth) + "</" + tag[0] + ">";
+  }
+
+  const info = kids(kids(root, "description")[0], "title-info")[0];
+  const field = name => kids(info, name)[0];
+  const authors = kids(info, "author").map(a =>
+    ["first-name", "middle-name", "last-name"].map(n => kids(a, n)[0]).filter(Boolean).map(n => n.textContent.trim()).join(" ") ||
+    (kids(a, "nickname")[0] || {}).textContent || "");
+  let html = kids(field("coverpage"), "image").map(i => conv(i, 0).replace("<img", '<img class="cover"')).join("");
+  if (field("book-title")) html += "<h1>" + escHtml(field("book-title").textContent.trim()) + "</h1>";
+  if (authors.length) html += '<p class="book-author">' + escHtml(authors.join(", ")) + "</p>";
+  if (field("annotation")) html += conv(field("annotation"), 0);
+  // Main body first, then named bodies (notes, comments) so footnote links have targets.
+  for (const body of kids(root, "body")) {
+    const tocSize = toc.length;
+    html += "<div class=\"fb2-body\">" + kids(body).map(c => conv(c, 0)).join("") + "</div>";
+    if (body.getAttribute("name")) toc.length = tocSize; // footnotes don't belong in the contents
+  }
+  return { type: "book", html: cleanHtml(html), toc };
+}
+
 async function renderFile(filePath) {
-  const ext = path.extname(filePath).toLowerCase();
+  const ext = fileExt(filePath);
   const abs = path.resolve(docsDir, filePath);
   if (!abs.startsWith(path.resolve(docsDir))) throw new Error("Access denied");
   if (!fs.existsSync(abs)) throw new Error("File not found");
@@ -201,6 +316,9 @@ async function renderFile(filePath) {
     const mammoth = req("mammoth");
     const result = await mammoth.convertToHtml({ path: abs });
     return { html: cleanHtml(result.value), type:"html" };
+  }
+  if (ext === ".fb2" || ext === ".fbz" || ext === ".fb2.zip") {
+    return renderFb2(await readFb2(abs, ext));
   }
   throw new Error("Unsupported format");
 }
@@ -406,6 +524,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
 [data-theme="light"] .ext-xlsx,[data-theme="light"] .ext-xls,[data-theme="light"] .ext-ods{color:#1d7a2e}
 .ext-csv,.ext-tsv{background:rgba(240,160,74,.1);color:var(--warn)}
 .ext-pdf{background:var(--error-bg);color:var(--error)}
+.ext-fb2,.ext-fbz,.ext-fb2\\.zip{background:rgba(180,120,255,.12);color:#a070f0}
+[data-theme="light"] .ext-fb2,[data-theme="light"] .ext-fbz,[data-theme="light"] .ext-fb2\\.zip{color:#7040c0}
 .ext-html{background:rgba(255,140,60,.12);color:#e0721a}
 [data-theme="light"] .ext-html{color:#c05a10}
 .ext-htm{background:rgba(255,140,60,.12);color:#e0721a}
@@ -579,6 +699,19 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
   border-radius:6px;padding:16px;overflow-x:auto;margin:1.2em 0;
 }
 .content-html pre code{background:none;padding:0;border:none;color:var(--text)}
+.book-toolbar{position:sticky;top:-40px;z-index:1;border-radius:6px;margin-bottom:24px;max-width:800px}
+.book-toolbar .toc{margin-left:auto;max-width:50%;font:inherit;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:3px 6px}
+.content-book{font-size:16px}
+.content-book [id]{scroll-margin-top:56px}
+.content-book .cover{display:block;max-height:60vh;margin:0 auto 1.5em;border:none}
+.content-book .book-author{color:var(--text-dim);margin-top:-.5em}
+.content-book .subtitle{text-align:center;font-weight:500}
+.content-book .epigraph{margin-left:35%;font-style:italic}
+.content-book .text-author{text-align:right;font-style:normal;color:var(--text-dim)}
+.content-book .poem{margin:1em 0 1em 2em}
+.content-book .stanza{margin:.8em 0}
+.content-book .verse{margin:0}
+.content-book .empty-line{height:1em}
 .content-html blockquote{
   border-left:3px solid var(--accent);padding-left:16px;
   margin:1.2em 0;color:var(--text-dim);font-style:italic;
@@ -828,7 +961,7 @@ var sortKey = 'name';   // 'name' | 'type' | 'date'
 var sortDir = 1;        // 1 = asc, -1 = desc
 var cachedTree = null;
 
-var EXT_ORDER = { md:0, docx:1, pdf:1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
+var EXT_ORDER = { md:0, docx:1, pdf:1, fb2:1, fbz:1, 'fb2.zip':1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
 
 function getSort() {
   try {
@@ -912,6 +1045,7 @@ async function loadTree() {
   treeEl.innerHTML = '';
   activeRow = null;
   cachedTree = null;
+  stopTracking();
   document.getElementById('viewer').innerHTML =
     '<div class="empty-state"><div class="big">&#128193;</div><p>Choose a file from the sidebar</p></div>';
   document.getElementById('breadcrumb').innerHTML = '<span>Select a file</span>';
@@ -926,7 +1060,7 @@ async function loadTree() {
   renderTree(applySort(tree), treeEl);
 }
 
-var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', pdf:'&#128213;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
+var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', pdf:'&#128213;', fb2:'&#128214;', fbz:'&#128214;', 'fb2.zip':'&#128214;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
 
 function renderTree(nodes, container) {
   nodes.forEach(function(node) {
@@ -964,6 +1098,7 @@ function renderTree(nodes, container) {
    FILE VIEWER
    ═══════════════════════════════════════ */
 async function openFile(node, rowEl) {
+  stopTracking();
   if (activeRow) activeRow.classList.remove('active');
   rowEl.classList.add('active');
   activeRow = rowEl;
@@ -988,6 +1123,20 @@ async function openFile(node, rowEl) {
         '<iframe src="' + data.src + '"' + (data.pdf ? '' : ' sandbox="allow-scripts allow-popups"') + ' title="' + esc(node.name) + '"></iframe>' +
         '</div>';
       viewer.innerHTML = toolbar + frame;
+    } else if (data.type === 'book') {
+      var opts = data.toc.map(function(t) {
+        return '<option value="' + esc(t.id).replace(/"/g, '&quot;') + '">' + new Array(t.level).join('\u00a0\u00a0\u00a0') + esc(t.title) + '</option>';
+      }).join('');
+      viewer.innerHTML = '<div class="iframe-toolbar book-toolbar">&#128214;&nbsp;' + esc(node.name) +
+        (opts ? '<select class="toc" aria-label="Contents"><option value="">Contents</option>' + opts + '</select>' : '') +
+        '</div><div class="content-html content-book">' + data.html + '</div>';
+      var toc = viewer.querySelector('.toc');
+      if (toc) toc.addEventListener('change', function() {
+        var target = document.getElementById(toc.value);
+        if (target) target.scrollIntoView();
+        toc.value = '';
+      });
+      trackPosition(viewer, 'folium-pos:' + document.getElementById('dirLabel').textContent + '/' + node.path);
     } else if (data.type === 'table') {
       viewer.innerHTML = '<div class="content-table">' + data.html + '</div>';
       setupTabs(viewer);
@@ -997,6 +1146,24 @@ async function openFile(node, rowEl) {
   } catch(e) {
     viewer.innerHTML = '<div class="error-msg">&#9888; ' + esc(e.message) + '</div>';
   }
+}
+// Remembers how far through a book the reader is, as a fraction so it survives window resizes.
+var stopTracking = function() {};
+function trackPosition(viewer, key) {
+  var saved = 0, timer;
+  try { saved = parseFloat(localStorage.getItem(key)) || 0; } catch(e) {}
+  // Wait for images so scrollHeight is final; always set, or the previous file's offset carries over.
+  var loading = Array.prototype.filter.call(viewer.querySelectorAll('img'), function(i) { return !i.complete; })
+    .map(function(i) { return new Promise(function(r) { i.onload = i.onerror = r; }); });
+  Promise.all(loading).then(function() { viewer.scrollTop = saved * viewer.scrollHeight; });
+  function save() {
+    clearTimeout(timer);
+    timer = setTimeout(function() {
+      try { localStorage.setItem(key, String(viewer.scrollTop / viewer.scrollHeight)); } catch(e) {}
+    }, 300);
+  }
+  viewer.addEventListener('scroll', save);
+  stopTracking = function() { clearTimeout(timer); viewer.removeEventListener('scroll', save); stopTracking = function() {}; };
 }
 function setupTabs(viewer) {
   var tabs = viewer.querySelectorAll('.sheet-tab');

@@ -20,8 +20,9 @@ It runs entirely on your computer. Folium never modifies your files and never up
 
 ## Features
 
-- **One viewer for many formats** — Word, Excel, OpenDocument, CSV/TSV, PDF, Markdown, HTML and plain text
+- **One viewer for many formats** — Word, Excel, OpenDocument, CSV/TSV, PDF, FB2 e-books, Markdown, HTML and plain text
 - **Text in any language** — detects UTF-8, UTF-16 and legacy encodings such as Windows-1251 (Cyrillic) and Windows-1252
+- **E-books** — FictionBook (`.fb2`, zipped `.fbz`/`.fb2.zip`) with a contents menu; Folium remembers where you stopped reading each book
 - **Spreadsheet tabs** — multi-sheet `.xlsx`, `.xls` and `.ods` files get a tab per sheet
 - **Safe HTML preview** — HTML files open in a sandboxed frame
 - **Folder tree with sorting** — by name, type or date, ascending or descending
@@ -35,6 +36,7 @@ It runs entirely on your computer. Folium never modifies your files and never up
 | OpenDocument spreadsheet | `.ods` |
 | CSV / TSV | `.csv`, `.tsv` |
 | PDF | `.pdf` |
+| FictionBook | `.fb2`, `.fbz`, `.fb2.zip` |
 | Markdown | `.md` |
 | HTML | `.html`, `.htm` |
 | Plain text | `.txt` |
