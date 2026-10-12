@@ -21,6 +21,7 @@ printf '<html><body><p>Розділ один <img src="p.png"/></p></body></html
 printf '<html><body><p>Розділ два</p></body></html>' > "$E/OEBPS/b.xhtml"
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' | base64 -d > "$E/OEBPS/p.png"
 (cd "$E" && zip -qX "$DIR/book.epub" mimetype META-INF/container.xml OEBPS/*)
+cp "$(dirname "$0")/fixtures/sample.doc" "$DIR/sample.doc"
 # A sibling folder whose name starts with the served folder's name must stay unreachable.
 mkdir -p "${DIR}-private" && echo secret > "${DIR}-private/secret.txt"
 
@@ -37,6 +38,7 @@ curl -fsSI "$BASE/api/raw?path=test.html" | grep -qi 'content-security-policy: s
 curl -fsS "${R}test.tsv" | grep -q '>2,5<'                        || fail "tsv"
 curl -fsS "${R}book.fb2" | grep -q 'Збірка'                       || fail "fb2"
 curl -fsS "${R}book.fbz" | grep -q 'Їжачок є'                     || fail "fbz"
+curl -fsS "${R}sample.doc" | grep -q 'Рахунок'                    || fail "doc"
 curl -fsS "${R}book.epub&chapter=1" | grep -q 'Розділ два'      || fail "epub"
 [[ "$(curl -fsS -o /dev/null -w '%{content_type}' "$BASE/api/epub-asset?path=book.epub&entry=OEBPS/p.png")" == image/png ]] || fail "epub image"
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' "$BASE/api/files")" == 403 ]] || fail "foreign Host header accepted"
