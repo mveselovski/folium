@@ -1,7 +1,7 @@
 {
   "name": "folium",
   "version": "0.1.2",
-  "description": "Local document browser for md, docx, xlsx, csv, html and txt files",
+  "description": "Local document browser for md, docx, xlsx, xls, ods, csv, tsv, pdf, fb2, html and txt files",
   "main": "folium.js",
   "bin": {
     "folium": "./folium.js"
@@ -19,15 +19,21 @@
     "markdown",
     "docx",
     "xlsx",
+    "pdf",
+    "fb2",
+    "ebook",
     "local",
     "cli"
   ],
   "author": "Michael Veselovski",
   "license": "MIT",
   "dependencies": {
+    "@xmldom/xmldom": "^0.8.15",
     "express": "^4.18.0",
+    "jszip": "^3.10.2",
     "mammoth": "^1.6.0",
     "marked": "^9.0.0",
+    "sanitize-html": "^2.18.0",
     "xlsx": "^0.18.0"
   },
   "engines": {
