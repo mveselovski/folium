@@ -31,7 +31,7 @@ It runs entirely on your computer. Folium never modifies your files and never up
 
 | Format | Extensions |
 |---|---|
-| Word | `.docx` |
+| Word | `.docx`, `.doc` (formatted on macOS, plain text on Linux) |
 | Excel | `.xlsx`, `.xls` |
 | OpenDocument spreadsheet | `.ods` |
 | CSV / TSV | `.csv`, `.tsv` |
