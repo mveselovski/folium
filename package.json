@@ -28,6 +28,7 @@
     "express": "^4.18.0",
     "mammoth": "^1.6.0",
     "marked": "^9.0.0",
+    "sanitize-html": "^2.18.0",
     "xlsx": "^0.18.0"
   },
   "engines": {

@@ -5,7 +5,7 @@
  *        node folium.js               ← opens with a directory picker
  *        node folium.js --help
  *
- * Install deps once:  npm install express marked mammoth xlsx
+ * Install deps once:  npm install express marked mammoth xlsx sanitize-html
  */
 
 const express = require("express");
@@ -54,11 +54,12 @@ const LOADERS = {
   marked:  () => require("marked"),
   mammoth: () => require("mammoth"),
   xlsx:    () => require("xlsx"),
+  sanitizeHtml: () => require("sanitize-html"),
 };
 function req(mod) {
   try { return LOADERS[mod](); }
   catch {
-    console.error(`\nMissing dependency: ${mod}\nRun:  npm install express marked mammoth xlsx\n`);
+    console.error(`\nMissing dependency: ${mod}\nRun:  npm install express marked mammoth xlsx sanitize-html\n`);
     process.exit(1);
   }
 }
@@ -66,6 +67,37 @@ function req(mod) {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function escHtml(s) {
   return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// Rendered documents go into the page with innerHTML, so everything converted from a
+// file passes through one allowlist: no scripts, event handlers, styles or javascript: URLs.
+let sanitizeOptions;
+function cleanHtml(html) {
+  const sanitize = req("sanitizeHtml");
+  sanitizeOptions = sanitizeOptions || {
+    allowedTags: sanitize.defaults.allowedTags.concat(["img", "del", "s", "section", "figure", "figcaption", "input"]),
+    allowedAttributes: {
+      "*":   ["id", "class", "title"],
+      a:     ["href", "name", "target", "rel"],
+      img:   ["src", "alt", "width", "height"],
+      td:    ["colspan", "rowspan"],
+      th:    ["colspan", "rowspan"],
+      ol:    ["start"],
+      input: ["type", "checked", "disabled"],
+    },
+    allowedSchemes: ["http", "https", "mailto"],
+    allowedSchemesByTag: { img: ["http", "https", "data"] },
+    nonTextTags: ["script", "style", "textarea", "option", "noscript", "title"],
+    exclusiveFilter: f => f.tag === "input" && f.attribs.type !== "checkbox",
+    transformTags: {
+      a: (tag, attribs) => {
+        if (/^https?:/i.test(attribs.href || "")) Object.assign(attribs, { target: "_blank", rel: "noopener noreferrer" });
+        else { delete attribs.target; delete attribs.rel; }
+        return { tagName: tag, attribs };
+      },
+    },
+  };
+  return sanitize(html, sanitizeOptions);
 }
 
 // ─── File tree ────────────────────────────────────────────────────────────────
@@ -140,7 +172,7 @@ async function renderFile(filePath) {
 
   if (ext === ".md") {
     const { marked } = req("marked");
-    return { html: marked.parse(readText(abs)), type:"html" };
+    return { html: cleanHtml(marked.parse(readText(abs))), type:"html" };
   }
   if (ext === ".txt") {
     return { html: "<pre class=\"txt\">" + escHtml(readText(abs)) + "</pre>", type:"html" };
@@ -148,7 +180,7 @@ async function renderFile(filePath) {
   if (ext === ".csv") {
     const XLSX = req("xlsx");
     const wb = XLSX.read(readText(abs), { type: "string" });
-    return { html: XLSX.utils.sheet_to_html(wb.Sheets[wb.SheetNames[0]]), type:"table" };
+    return { html: cleanHtml(XLSX.utils.sheet_to_html(wb.Sheets[wb.SheetNames[0]])), type:"table" };
   }
   if (ext === ".xlsx") {
     const XLSX = req("xlsx");
@@ -157,7 +189,7 @@ async function renderFile(filePath) {
       "<button class=\"tab-btn" + (i===0?" active":"") + "\" data-idx=\"" + i + "\">" + escHtml(n) + "</button>"
     ).join("");
     const tabs = wb.SheetNames.map(n =>
-      "<div class=\"sheet-tab\">" + XLSX.utils.sheet_to_html(wb.Sheets[n]) + "</div>"
+      "<div class=\"sheet-tab\">" + cleanHtml(XLSX.utils.sheet_to_html(wb.Sheets[n])) + "</div>"
     ).join("");
     return { html: "<div class=\"tab-nav\">" + nav + "</div><div class=\"sheets\">" + tabs + "</div>", type:"table" };
   }
@@ -167,7 +199,7 @@ async function renderFile(filePath) {
   if (ext === ".docx") {
     const mammoth = req("mammoth");
     const result = await mammoth.convertToHtml({ path: abs });
-    return { html: result.value, type:"html" };
+    return { html: cleanHtml(result.value), type:"html" };
   }
   throw new Error("Unsupported format");
 }
@@ -206,6 +238,9 @@ app.get("/api/raw", (req2, res) => {
     const ext = path.extname(abs).toLowerCase();
     if (ext !== ".html" && ext !== ".htm") return res.status(400).send("Not an HTML file");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
+    // Sandboxed even when opened directly in a tab: an opaque origin can't reach Folium's API or storage.
+    res.setHeader("Content-Security-Policy", "sandbox allow-scripts allow-popups");
+    res.setHeader("X-Content-Type-Options", "nosniff");
     res.send(fs.readFileSync(abs));
   } catch (e) { res.status(500).send(e.message); }
 });
@@ -944,7 +979,7 @@ async function openFile(node, rowEl) {
         '<a href="' + data.src + '" target="_blank">open in new tab &#8599;</a>' +
         '</div>';
       var frame = '<div class="iframe-wrap">' +
-        '<iframe src="' + data.src + '" sandbox="allow-scripts allow-same-origin" title="' + esc(node.name) + '"></iframe>' +
+        '<iframe src="' + data.src + '" sandbox="allow-scripts allow-popups" title="' + esc(node.name) + '"></iframe>' +
         '</div>';
       viewer.innerHTML = toolbar + frame;
     } else if (data.type === 'table') {
