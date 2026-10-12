@@ -522,7 +522,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
 .tree-row.active{background:var(--tree-active);border-left-color:var(--accent)}
 .tree-row .icon{font-size:13px;flex-shrink:0}
 .tree-row .name{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tree-row .ext-badge{
+.ext-badge{
   margin-left:auto;font-family:'IBM Plex Mono',monospace;font-size:10px;
   padding:1px 5px;border-radius:3px;flex-shrink:0;
   background:var(--muted);color:var(--text-dim);
