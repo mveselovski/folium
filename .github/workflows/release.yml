@@ -60,22 +60,7 @@ jobs:
         run: |
           DIR="$(mktemp -d)"
           tar -xzf dist/folium-*-linux-${{ matrix.arch }}.tar.gz -C "$DIR"
-          printf '# Привіт\n\n<img src=x onerror="alert(1)">\n' > "$DIR/test.md"
-          printf '<p>hi</p>' > "$DIR/test.html"
-          printf 'a\tb\n1\t2,5\n' > "$DIR/test.tsv"
-          printf '<?xml version="1.0" encoding="windows-1251"?><FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"><description><title-info><book-title>Збірка</book-title></title-info></description><body><section><p>Їжачок є</p></section></body></FictionBook>' \
-            | iconv -f utf-8 -t windows-1251 > "$DIR/book.fb2"
-          (cd "$DIR" && zip -q book.fbz book.fb2)
-          "$DIR"/folium-*/folium "$DIR" --port 4000 &
-          sleep 2
-          R="http://127.0.0.1:4000/api/render?path="
-          curl -fsS "${R}test.md" | grep -q 'Привіт'
-          if curl -fsS "${R}test.md" | grep -q 'onerror'; then echo "markdown not sanitized"; exit 1; fi
-          curl -fsSI "http://127.0.0.1:4000/api/raw?path=test.html" | grep -qi 'content-security-policy: sandbox'
-          curl -fsS "${R}test.tsv" | grep -q '>2,5<'
-          curl -fsS "${R}book.fb2" | grep -q 'Збірка'
-          curl -fsS "${R}book.fbz" | grep -q 'Їжачок є'
-          kill %1
+          scripts/smoke-test.sh "$DIR"/folium-*/folium
 
       - name: Upload to release
         env:

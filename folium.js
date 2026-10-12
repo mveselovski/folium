@@ -12,6 +12,7 @@ const express = require("express");
 const path    = require("path");
 const fs      = require("fs");
 const os      = require("os");
+const net     = require("net");
 
 // ─── CLI args ────────────────────────────────────────────────────────────────
 const { version } = require("./package.json");
@@ -325,6 +326,14 @@ async function renderFile(filePath) {
 
 // ─── Express ──────────────────────────────────────────────────────────────────
 const app = express();
+// DNS rebinding: a web page can point its own domain at 127.0.0.1 and read the API from its
+// origin. Such requests carry that domain in Host, so accept only IPs and this machine's names.
+const HOSTNAMES = new Set(["localhost", host.toLowerCase(), os.hostname().toLowerCase(), os.hostname().toLowerCase().replace(/\.local$/, "") + ".local"]);
+app.use((req2, res, next) => {
+  const name = (req2.headers.host || "").toLowerCase().replace(/:\d+$/, "").replace(/^\[(.*)\]$/, "$1");
+  if (net.isIP(name) || HOSTNAMES.has(name)) return next();
+  res.status(403).send("Forbidden host");
+});
 app.use(express.json());
 
 app.get("/api/meta",   (_q, res) => res.json({ dir: docsDir }));
@@ -1068,7 +1077,7 @@ function renderTree(nodes, container) {
     el.className = 'tree-node';
     if (node.type === 'dir') {
       el.innerHTML =
-        '<div class="tree-row dir-row" data-path="' + node.path + '">' +
+        '<div class="tree-row dir-row">' +
           '<span class="chevron">&#9658;</span>' +
           '<span class="icon">&#128193;</span>' +
           '<span class="name">' + esc(node.name) + '</span>' +
@@ -1083,7 +1092,7 @@ function renderTree(nodes, container) {
       });
     } else {
       el.innerHTML =
-        '<div class="tree-row" data-path="' + node.path + '">' +
+        '<div class="tree-row">' +
           '<span class="icon">' + (EXT_ICONS[node.ext] || '&#128196;') + '</span>' +
           '<span class="name">' + esc(node.name) + '</span>' +
           '<span class="ext-badge ext-' + node.ext + '">' + node.ext + '</span>' +
