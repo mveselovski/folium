@@ -1,0 +1,69 @@
+---
+layout: default
+layout_class: landing
+---
+<div class="hero">
+  <h1>Read every document in a folder, in one window.</h1>
+  <p>Folium is a fast, read-only viewer for Word, Excel, CSV, PDF, e-books, Markdown and more. Point it at a folder and click through everything in seconds. It never changes your files and never uploads them.</p>
+  <div class="actions">
+    <a class="button" href="{{ site.repo }}/releases/latest">Download for Mac</a>
+    <a class="button secondary" href="{{ '/install/' | relative_url }}">Linux &amp; other installs</a>
+  </div>
+  <code class="cmd">brew install --cask mveselovski/tap/folium</code>
+  <p class="small">Free and open source · macOS (Apple silicon &amp; Intel) and Linux · signed and notarized by Apple</p>
+</div>
+
+<!-- Screenshots go in docs/assets/; the figure hides itself until they exist. -->
+<figure class="screenshot">
+  <picture>
+    <source srcset="{{ '/assets/screenshot-dark.webp' | relative_url }}" media="(prefers-color-scheme: dark)">
+    <img src="{{ '/assets/screenshot-light.webp' | relative_url }}" width="2000" height="1291" alt="Folium showing a folder tree on the left and the MIT license rendered on the right" onerror="this.closest('figure').hidden = true">
+  </picture>
+</figure>
+
+<section>
+  <h2>One viewer for a mixed folder</h2>
+  <div class="grid">
+    <div class="card"><h3>Many formats</h3><p>Word, Excel, OpenDocument, CSV/TSV, PDF, EPUB and FB2 e-books, Markdown, HTML and plain text.</p></div>
+    <div class="card"><h3>Text in any language</h3><p>Detects UTF-8, UTF-16 and legacy encodings such as Windows-1251 (Cyrillic) and Windows-1252.</p></div>
+    <div class="card"><h3>E-books</h3><p>EPUB chapter by chapter and FictionBook with a contents menu. Folium remembers where you stopped reading each book.</p></div>
+    <div class="card"><h3>Spreadsheet tabs</h3><p>Multi-sheet <code>.xlsx</code>, <code>.xls</code> and <code>.ods</code> files get a tab per sheet.</p></div>
+    <div class="card"><h3>Safe HTML preview</h3><p>HTML files open in a sandboxed frame.</p></div>
+    <div class="card"><h3>Folder tree &amp; themes</h3><p>Sort by name, type or date. Light and dark themes, remembered between sessions.</p></div>
+  </div>
+</section>
+
+<section class="formats">
+  <h2>Supported formats</h2>
+  <table>
+    <tr><th>Format</th><th>Extensions</th></tr>
+    <tr><td>Word</td><td><code>.docx</code>, <code>.doc</code> (formatted on macOS, plain text on Linux)</td></tr>
+    <tr><td>Excel</td><td><code>.xlsx</code>, <code>.xls</code></td></tr>
+    <tr><td>OpenDocument spreadsheet</td><td><code>.ods</code></td></tr>
+    <tr><td>CSV / TSV</td><td><code>.csv</code>, <code>.tsv</code></td></tr>
+    <tr><td>PDF</td><td><code>.pdf</code></td></tr>
+    <tr><td>EPUB</td><td><code>.epub</code></td></tr>
+    <tr><td>FictionBook</td><td><code>.fb2</code>, <code>.fbz</code>, <code>.fb2.zip</code></td></tr>
+    <tr><td>Markdown</td><td><code>.md</code></td></tr>
+    <tr><td>HTML</td><td><code>.html</code>, <code>.htm</code></td></tr>
+    <tr><td>Plain text</td><td><code>.txt</code></td></tr>
+  </table>
+</section>
+
+<section class="privacy">
+  <h2>Private by design</h2>
+  <ul>
+    <li><strong>Read-only.</strong> Folium never creates, changes or deletes anything.</li>
+    <li><strong>Local.</strong> Documents are converted on your machine. Nothing about your files is sent anywhere.</li>
+    <li><strong>Yours only.</strong> It's a small local server that only your computer can reach, shown in its own Mac app window or in your browser.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Get Folium</h2>
+  <div class="grid">
+    <div class="card"><h3>macOS app</h3><p>Download the <a href="{{ site.repo }}/releases/latest"><code>.dmg</code></a> or run <code>brew install --cask mveselovski/tap/folium</code>.</p></div>
+    <div class="card"><h3>Command line</h3><p><code>brew install mveselovski/tap/folium</code>, then <code>folium ~/Documents</code>.</p></div>
+    <div class="card"><h3>Linux</h3><p>One self-contained binary for x64 and arm64. <a href="{{ '/install/#linux' | relative_url }}">Install instructions</a>.</p></div>
+  </div>
+</section>
