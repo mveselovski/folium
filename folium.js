@@ -101,7 +101,7 @@ function cleanHtml(html) {
 }
 
 // ─── File tree ────────────────────────────────────────────────────────────────
-const SUPPORTED = new Set([".md",".docx",".xlsx",".csv",".txt",".html",".htm"]);
+const SUPPORTED = new Set([".md",".docx",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf"]);
 
 function buildTree(dir, base) {
   base = base || "";
@@ -177,12 +177,13 @@ async function renderFile(filePath) {
   if (ext === ".txt") {
     return { html: "<pre class=\"txt\">" + escHtml(readText(abs)) + "</pre>", type:"html" };
   }
-  if (ext === ".csv") {
+  if (ext === ".csv" || ext === ".tsv") {
     const XLSX = req("xlsx");
-    const wb = XLSX.read(readText(abs), { type: "string" });
+    // TSV: explicit separator (SheetJS guesses commas) and raw text, so "2,5" isn't read as 25.
+    const wb = XLSX.read(readText(abs), ext === ".tsv" ? { type: "string", FS: "\t", raw: true } : { type: "string" });
     return { html: cleanHtml(XLSX.utils.sheet_to_html(wb.Sheets[wb.SheetNames[0]])), type:"table" };
   }
-  if (ext === ".xlsx") {
+  if (ext === ".xlsx" || ext === ".xls" || ext === ".ods") {
     const XLSX = req("xlsx");
     const wb = XLSX.readFile(abs);
     const nav  = wb.SheetNames.map((n,i) =>
@@ -193,8 +194,8 @@ async function renderFile(filePath) {
     ).join("");
     return { html: "<div class=\"tab-nav\">" + nav + "</div><div class=\"sheets\">" + tabs + "</div>", type:"table" };
   }
-  if (ext === ".html" || ext === ".htm") {
-    return { type: "iframe", src: "/api/raw?path=" + encodeURIComponent(filePath) };
+  if (ext === ".html" || ext === ".htm" || ext === ".pdf") {
+    return { type: "iframe", src: "/api/raw?path=" + encodeURIComponent(filePath), pdf: ext === ".pdf" };
   }
   if (ext === ".docx") {
     const mammoth = req("mammoth");
@@ -236,11 +237,14 @@ app.get("/api/raw", (req2, res) => {
     if (!abs.startsWith(path.resolve(docsDir))) return res.status(403).send("Access denied");
     if (!fs.existsSync(abs)) return res.status(404).send("Not found");
     const ext = path.extname(abs).toLowerCase();
-    if (ext !== ".html" && ext !== ".htm") return res.status(400).send("Not an HTML file");
-    res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // Sandboxed even when opened directly in a tab: an opaque origin can't reach Folium's API or storage.
-    res.setHeader("Content-Security-Policy", "sandbox allow-scripts allow-popups");
+    if (ext !== ".html" && ext !== ".htm" && ext !== ".pdf") return res.status(400).send("Not an HTML or PDF file");
     res.setHeader("X-Content-Type-Options", "nosniff");
+    if (ext === ".pdf") res.setHeader("Content-Type", "application/pdf");
+    else {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      // Sandboxed even when opened directly in a tab: an opaque origin can't reach Folium's API or storage.
+      res.setHeader("Content-Security-Policy", "sandbox allow-scripts allow-popups");
+    }
     res.send(fs.readFileSync(abs));
   } catch (e) { res.status(500).send(e.message); }
 });
@@ -398,9 +402,10 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
 }
 .ext-md  {background:var(--accent-bg);color:var(--accent)}
 .ext-docx{background:rgba(107,140,255,.12);color:var(--accent2)}
-.ext-xlsx{background:rgba(74,210,90,.1);color:#2a9e3a}
-[data-theme="light"] .ext-xlsx{color:#1d7a2e}
-.ext-csv {background:rgba(240,160,74,.1);color:var(--warn)}
+.ext-xlsx,.ext-xls,.ext-ods{background:rgba(74,210,90,.1);color:#2a9e3a}
+[data-theme="light"] .ext-xlsx,[data-theme="light"] .ext-xls,[data-theme="light"] .ext-ods{color:#1d7a2e}
+.ext-csv,.ext-tsv{background:rgba(240,160,74,.1);color:var(--warn)}
+.ext-pdf{background:var(--error-bg);color:var(--error)}
 .ext-html{background:rgba(255,140,60,.12);color:#e0721a}
 [data-theme="light"] .ext-html{color:#c05a10}
 .ext-htm{background:rgba(255,140,60,.12);color:#e0721a}
@@ -823,7 +828,7 @@ var sortKey = 'name';   // 'name' | 'type' | 'date'
 var sortDir = 1;        // 1 = asc, -1 = desc
 var cachedTree = null;
 
-var EXT_ORDER = { md:0, docx:1, xlsx:2, csv:3, html:4, htm:4, txt:5 };
+var EXT_ORDER = { md:0, docx:1, pdf:1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
 
 function getSort() {
   try {
@@ -921,7 +926,7 @@ async function loadTree() {
   renderTree(applySort(tree), treeEl);
 }
 
-var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', xlsx:'&#128202;', csv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
+var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', pdf:'&#128213;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
 
 function renderTree(nodes, container) {
   nodes.forEach(function(node) {
@@ -975,11 +980,12 @@ async function openFile(node, rowEl) {
     if (data.error) { viewer.innerHTML = '<div class="error-msg">&#9888; ' + esc(data.error) + '</div>'; return; }
     if (data.type === 'iframe') {
       var toolbar = '<div class="iframe-toolbar">' +
-        '&#127760;&nbsp;' + esc(node.name) +
+        (data.pdf ? '&#128213;' : '&#127760;') + '&nbsp;' + esc(node.name) +
         '<a href="' + data.src + '" target="_blank">open in new tab &#8599;</a>' +
         '</div>';
       var frame = '<div class="iframe-wrap">' +
-        '<iframe src="' + data.src + '" sandbox="allow-scripts allow-popups" title="' + esc(node.name) + '"></iframe>' +
+        // PDF viewers won't run in sandboxed frames; a PDF can't script the parent page anyway.
+        '<iframe src="' + data.src + '"' + (data.pdf ? '' : ' sandbox="allow-scripts allow-popups"') + ' title="' + esc(node.name) + '"></iframe>' +
         '</div>';
       viewer.innerHTML = toolbar + frame;
     } else if (data.type === 'table') {
