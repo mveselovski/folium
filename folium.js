@@ -104,7 +104,7 @@ function cleanHtml(html) {
 }
 
 // ─── File tree ────────────────────────────────────────────────────────────────
-const SUPPORTED = new Set([".md",".docx",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf",".fb2",".fbz",".fb2.zip"]);
+const SUPPORTED = new Set([".md",".docx",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf",".fb2",".fbz",".fb2.zip",".epub"]);
 
 // Like path.extname, but keeps the double extension of zipped FictionBooks.
 function fileExt(name) {
@@ -187,6 +187,14 @@ const FB2_TAGS = {
 
 function escAttr(s) { return escHtml(s).replace(/"/g, "&quot;"); }
 
+// Tolerant XML parsing: e-books in the wild are often slightly malformed.
+function parseXml(text) {
+  const { DOMParser } = req("xmldom");
+  const quiet = { warning() {}, error() {}, fatalError() {} };
+  return new DOMParser({ errorHandler: quiet }).parseFromString(text, "text/xml");
+}
+const kids = (el, name) => el ? Array.from(el.childNodes).filter(c => c.nodeType === 1 && (!name || c.localName === name)) : [];
+
 async function readFb2(abs, ext) {
   let buf = fs.readFileSync(abs);
   if (ext !== ".fb2") {
@@ -204,13 +212,10 @@ async function readFb2(abs, ext) {
 }
 
 function renderFb2(xml) {
-  const { DOMParser } = req("xmldom");
-  const quiet = { warning() {}, error() {}, fatalError() {} };
   let root;
-  try { root = new DOMParser({ errorHandler: quiet }).parseFromString(xml, "text/xml").documentElement; } catch {}
+  try { root = parseXml(xml).documentElement; } catch {}
   if (!root || root.localName !== "FictionBook") throw new Error("Not a valid FB2 file");
 
-  const kids = (el, name) => el ? Array.from(el.childNodes).filter(c => c.nodeType === 1 && (!name || c.localName === name)) : [];
   const href = el => {
     if (el.hasAttributeNS(XLINK, "href")) return el.getAttributeNS(XLINK, "href");
     const a = Array.from(el.attributes).find(a => a.localName === "href");
@@ -280,11 +285,122 @@ function renderFb2(xml) {
   return { type: "book", html: cleanHtml(html), toc };
 }
 
-async function renderFile(filePath) {
-  const ext = fileExt(filePath);
-  const abs = path.resolve(docsDir, filePath);
-  if (!abs.startsWith(path.resolve(docsDir))) throw new Error("Access denied");
+// ─── EPUB ─────────────────────────────────────────────────────────────────────
+// Rendered one spine item (chapter) at a time. The last opened book stays parsed in memory,
+// since every chapter and image request needs it.
+const EPUB_IMAGES = { ".png":"image/png", ".jpg":"image/jpeg", ".jpeg":"image/jpeg", ".gif":"image/gif", ".webp":"image/webp" };
+let epubCache = null;
+
+async function openEpub(abs) {
+  const mtime = fs.statSync(abs).mtimeMs;
+  if (epubCache && epubCache.abs === abs && epubCache.mtime === mtime) return epubCache;
+  const zip = await req("jszip").loadAsync(fs.readFileSync(abs));
+  const text = async name => {
+    const f = zip.file(name);
+    if (!f) throw new Error("Not a valid EPUB file");
+    return decodeText(await f.async("nodebuffer"));
+  };
+  // Font obfuscation also uses encryption.xml; DRM encrypts the chapters themselves.
+  const encryption = zip.file("META-INF/encryption.xml") ? await text("META-INF/encryption.xml") : "";
+  if (zip.file("META-INF/rights.xml") || /URI="[^"]*\.x?html?"/i.test(encryption)) {
+    throw new Error("This book is DRM-protected and can't be opened");
+  }
+  const all = (doc, name) => Array.from(doc.getElementsByTagNameNS("*", name));
+  const rootfile = all(parseXml(await text("META-INF/container.xml")), "rootfile")[0];
+  const opfPath = rootfile && rootfile.getAttribute("full-path");
+  if (!opfPath) throw new Error("Not a valid EPUB file");
+  const opf = parseXml(await text(opfPath));
+
+  const decode = s => { try { return decodeURIComponent(s); } catch { return s; } };
+  const resolve = (from, href) => path.posix.normalize(path.posix.join(path.posix.dirname(from), decode(href)));
+  const manifest = {};
+  for (const item of all(opf, "item")) {
+    manifest[item.getAttribute("id")] = { href: resolve(opfPath, item.getAttribute("href")), props: item.getAttribute("properties") || "" };
+  }
+  const chapters = all(opf, "itemref").map(i => manifest[i.getAttribute("idref")]).filter(Boolean).map(m => m.href);
+  if (!chapters.length) throw new Error("Not a valid EPUB file");
+  // A link inside the book → which chapter, and which element in it.
+  const link = (from, href) => {
+    const [file, frag = ""] = href.split("#");
+    const chapter = chapters.indexOf(file ? resolve(from, file) : from);
+    return chapter < 0 ? null : { chapter, frag };
+  };
+
+  // Contents: EPUB 3 nav document, else the EPUB 2 NCX. A missing or broken one just means no menu.
+  const toc = [];
+  const add = (from, href, title, level) => {
+    const target = href && link(from, href);
+    if (target && title && level <= 3) toc.push({ chapter: target.chapter, id: target.frag ? "epub-" + target.frag : "", title, level });
+  };
+  const clean = s => (s || "").trim().replace(/\s+/g, " ");
+  try {
+    const nav = Object.values(manifest).find(m => /\bnav\b/.test(m.props));
+    const ncx = manifest[(all(opf, "spine")[0] || { getAttribute() {} }).getAttribute("toc")];
+    if (nav) {
+      const doc = parseXml(await text(nav.href));
+      const navs = all(doc, "nav");
+      const walk = (ol, level) => kids(ol, "li").forEach(li => {
+        const a = kids(li).find(c => c.localName === "a" || c.localName === "span");
+        if (a) add(nav.href, a.getAttribute("href"), clean(a.textContent), level);
+        kids(li, "ol").forEach(sub => walk(sub, level + 1));
+      });
+      kids(navs.find(n => /toc/.test(n.getAttribute("epub:type") || "")) || navs[0], "ol").forEach(ol => walk(ol, 1));
+    } else if (ncx) {
+      const walk = (el, level) => kids(el, "navPoint").forEach(p => {
+        add(ncx.href, (kids(p, "content")[0] || { getAttribute() {} }).getAttribute("src"), clean((kids(p, "navLabel")[0] || {}).textContent), level);
+        walk(p, level + 1);
+      });
+      walk(all(parseXml(await text(ncx.href)), "navMap")[0], 1);
+    }
+  } catch { toc.length = 0; }
+
+  epubCache = { abs, mtime, zip, chapters, toc, link, resolve };
+  return epubCache;
+}
+
+async function renderEpub(abs, filePath, chapter) {
+  const book = await openEpub(abs);
+  const i = Math.min(Math.max(parseInt(chapter) || 0, 0), book.chapters.length - 1);
+  const from = book.chapters[i];
+  const file = book.zip.file(from);
+  if (!file) throw new Error("Chapter missing from the EPUB file");
+  const source = decodeText(await file.async("nodebuffer"));
+  const body = (/<body[^>]*>([\s\S]*)<\/body>/i.exec(source) || [null, source])[1];
+  const asset = entry => "/api/epub-asset?path=" + encodeURIComponent(filePath) + "&entry=" + encodeURIComponent(entry);
+  // Point images at the asset route, prefix ids (so they can't clash with the app's), turn links
+  // between chapters into #epub/<chapter>/<id>, and drop the book's classes, which its CSS isn't
+  // loaded for. Security doesn't rest on these regexes: cleanHtml runs over the result.
+  const html = body
+    .replace(/<svg\b[\s\S]*?<image\b[^>]*?href\s*=\s*["']([^"']+)["'][\s\S]*?<\/svg>/gi, '<img src="$1">') // SVG-wrapped covers
+    .replace(/\s(id|href|src|class)\s*=\s*(["'])([\s\S]*?)\2/gi, (m, name, q, value) => {
+      name = name.toLowerCase();
+      value = value.replace(/&amp;/g, "&");
+      if (name === "class") return "";
+      if (name === "id") return ' id="' + escAttr("epub-" + value) + '"';
+      if (name === "src") {
+        const entry = book.resolve(from, value);
+        return EPUB_IMAGES[path.extname(entry).toLowerCase()] ? ' src="' + escAttr(asset(entry)) + '"' : "";
+      }
+      if (/^[a-z][\w+.-]*:/i.test(value)) return ' href="' + escAttr(value) + '"';
+      const target = book.link(from, value);
+      return target ? ' href="' + escAttr("#epub/" + target.chapter + "/" + target.frag) + '"' : "";
+    });
+  return { type: "book", html: cleanHtml(html), toc: book.toc, chapter: i, chapters: book.chapters.length };
+}
+
+// Resolves a path sent by the client inside the open folder; anything outside it is refused.
+function docPath(file) {
+  if (!docsDir) throw new Error("No directory selected");
+  if (!file) throw new Error("No path");
+  const root = path.resolve(docsDir), abs = path.resolve(root, file);
+  if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error("Access denied");
   if (!fs.existsSync(abs)) throw new Error("File not found");
+  return abs;
+}
+
+async function renderFile(filePath, chapter) {
+  const ext = fileExt(filePath);
+  const abs = docPath(filePath);
 
   if (ext === ".md") {
     const { marked } = req("marked");
@@ -321,6 +437,7 @@ async function renderFile(filePath) {
   if (ext === ".fb2" || ext === ".fbz" || ext === ".fb2.zip") {
     return renderFb2(await readFb2(abs, ext));
   }
+  if (ext === ".epub") return renderEpub(abs, filePath, chapter);
   throw new Error("Unsupported format");
 }
 
@@ -356,13 +473,9 @@ app.post("/api/setdir", (req2, res) => {
   res.json({ ok: true, dir: docsDir });
 });
 app.get("/api/raw", (req2, res) => {
-  if (!docsDir) return res.status(400).send("No directory selected");
+  let abs;
+  try { abs = docPath(req2.query.path); } catch (e) { return res.status(404).send(e.message); }
   try {
-    const file = req2.query.path;
-    if (!file) return res.status(400).send("No path");
-    const abs = path.resolve(docsDir, file);
-    if (!abs.startsWith(path.resolve(docsDir))) return res.status(403).send("Access denied");
-    if (!fs.existsSync(abs)) return res.status(404).send("Not found");
     const ext = path.extname(abs).toLowerCase();
     if (ext !== ".html" && ext !== ".htm" && ext !== ".pdf") return res.status(400).send("Not an HTML or PDF file");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -380,8 +493,19 @@ app.get("/api/render", async (req2, res) => {
   try {
     const file = req2.query.path;
     if (!file) return res.status(400).json({ error: "No path" });
-    res.json(await renderFile(file));
+    res.json(await renderFile(file, req2.query.chapter));
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.get("/api/epub-asset", async (req2, res) => {
+  try {
+    const abs = docPath(req2.query.path);
+    const type = EPUB_IMAGES[path.extname(String(req2.query.entry || "")).toLowerCase()];
+    const file = type && fileExt(abs) === ".epub" && (await openEpub(abs)).zip.file(String(req2.query.entry));
+    if (!file) return res.status(404).send("Not found");
+    res.setHeader("Content-Type", type);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.send(await file.async("nodebuffer"));
+  } catch (e) { res.status(404).send(e.message); }
 });
 
 // ─── HTML ─────────────────────────────────────────────────────────────────────
@@ -533,8 +657,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
 [data-theme="light"] .ext-xlsx,[data-theme="light"] .ext-xls,[data-theme="light"] .ext-ods{color:#1d7a2e}
 .ext-csv,.ext-tsv{background:rgba(240,160,74,.1);color:var(--warn)}
 .ext-pdf{background:var(--error-bg);color:var(--error)}
-.ext-fb2,.ext-fbz,.ext-fb2\\.zip{background:rgba(180,120,255,.12);color:#a070f0}
-[data-theme="light"] .ext-fb2,[data-theme="light"] .ext-fbz,[data-theme="light"] .ext-fb2\\.zip{color:#7040c0}
+.ext-fb2,.ext-fbz,.ext-fb2\\.zip,.ext-epub{background:rgba(180,120,255,.12);color:#a070f0}
+[data-theme="light"] .ext-fb2,[data-theme="light"] .ext-fbz,[data-theme="light"] .ext-fb2\\.zip,[data-theme="light"] .ext-epub{color:#7040c0}
 .ext-html{background:rgba(255,140,60,.12);color:#e0721a}
 [data-theme="light"] .ext-html{color:#c05a10}
 .ext-htm{background:rgba(255,140,60,.12);color:#e0721a}
@@ -709,6 +833,9 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
 }
 .content-html pre code{background:none;padding:0;border:none;color:var(--text)}
 .book-toolbar{position:sticky;top:-40px;z-index:1;border-radius:6px;margin-bottom:24px;max-width:800px}
+.chapter-nav{display:flex;align-items:center;gap:6px;margin-left:8px;white-space:nowrap}
+.chapter-nav button{font:inherit;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:0 8px;cursor:pointer}
+.chapter-nav button:disabled{opacity:.3;cursor:default}
 .book-toolbar .toc{margin-left:auto;max-width:50%;font:inherit;background:var(--surface);color:var(--text);border:1px solid var(--border2);border-radius:4px;padding:3px 6px}
 .content-book{font-size:16px}
 .content-book [id]{scroll-margin-top:56px}
@@ -970,7 +1097,7 @@ var sortKey = 'name';   // 'name' | 'type' | 'date'
 var sortDir = 1;        // 1 = asc, -1 = desc
 var cachedTree = null;
 
-var EXT_ORDER = { md:0, docx:1, pdf:1, fb2:1, fbz:1, 'fb2.zip':1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
+var EXT_ORDER = { md:0, docx:1, pdf:1, fb2:1, fbz:1, 'fb2.zip':1, epub:1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
 
 function getSort() {
   try {
@@ -1069,7 +1196,7 @@ async function loadTree() {
   renderTree(applySort(tree), treeEl);
 }
 
-var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', pdf:'&#128213;', fb2:'&#128214;', fbz:'&#128214;', 'fb2.zip':'&#128214;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
+var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', pdf:'&#128213;', fb2:'&#128214;', fbz:'&#128214;', 'fb2.zip':'&#128214;', epub:'&#128214;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
 
 function renderTree(nodes, container) {
   nodes.forEach(function(node) {
@@ -1119,7 +1246,8 @@ async function openFile(node, rowEl) {
   var viewer = document.getElementById('viewer');
   viewer.innerHTML = '<div class="loading">Loading&hellip;</div>';
   try {
-    var res = await fetch('/api/render?path=' + encodeURIComponent(node.path));
+    // Books open at the chapter you were reading.
+    var res = await fetch('/api/render?path=' + encodeURIComponent(node.path) + '&chapter=' + readPos(posKey(node)).c);
     var data = await res.json();
     if (data.error) { viewer.innerHTML = '<div class="error-msg">&#9888; ' + esc(data.error) + '</div>'; return; }
     if (data.type === 'iframe') {
@@ -1133,19 +1261,7 @@ async function openFile(node, rowEl) {
         '</div>';
       viewer.innerHTML = toolbar + frame;
     } else if (data.type === 'book') {
-      var opts = data.toc.map(function(t) {
-        return '<option value="' + esc(t.id).replace(/"/g, '&quot;') + '">' + new Array(t.level).join('\u00a0\u00a0\u00a0') + esc(t.title) + '</option>';
-      }).join('');
-      viewer.innerHTML = '<div class="iframe-toolbar book-toolbar">&#128214;&nbsp;' + esc(node.name) +
-        (opts ? '<select class="toc" aria-label="Contents"><option value="">Contents</option>' + opts + '</select>' : '') +
-        '</div><div class="content-html content-book">' + data.html + '</div>';
-      var toc = viewer.querySelector('.toc');
-      if (toc) toc.addEventListener('change', function() {
-        var target = document.getElementById(toc.value);
-        if (target) target.scrollIntoView();
-        toc.value = '';
-      });
-      trackPosition(viewer, 'folium-pos:' + document.getElementById('dirLabel').textContent + '/' + node.path);
+      showBook(viewer, node, data, '');
     } else if (data.type === 'table') {
       viewer.innerHTML = '<div class="content-table">' + data.html + '</div>';
       setupTabs(viewer);
@@ -1156,21 +1272,77 @@ async function openFile(node, rowEl) {
     viewer.innerHTML = '<div class="error-msg">&#9888; ' + esc(e.message) + '</div>';
   }
 }
-// Remembers how far through a book the reader is, as a fraction so it survives window resizes.
+// Books: FB2 arrives whole (no chapters); EPUB one chapter at a time, with prev/next and a
+// contents menu that can jump across chapters. frag is an element id to scroll to.
+function showBook(viewer, node, data, frag) {
+  var chapter = data.chapter || 0, count = data.chapters || 1;
+  var opts = data.toc.map(function(t) {
+    var value = (t.chapter == null ? chapter : t.chapter) + '|' + t.id;
+    return '<option value="' + esc(value).replace(/"/g, '&quot;') + '">' + new Array(t.level).join('\u00a0\u00a0\u00a0') + esc(t.title) + '</option>';
+  }).join('');
+  var nav = count < 2 ? '' : '<span class="chapter-nav">' +
+    '<button data-step="-1" aria-label="Previous chapter"' + (chapter === 0 ? ' disabled' : '') + '>&#8249;</button>' +
+    (chapter + 1) + ' / ' + count +
+    '<button data-step="1" aria-label="Next chapter"' + (chapter === count - 1 ? ' disabled' : '') + '>&#8250;</button></span>';
+  viewer.innerHTML = '<div class="iframe-toolbar book-toolbar">&#128214;&nbsp;' + esc(node.name) +
+    (opts ? '<select class="toc" aria-label="Contents"><option value="">Contents</option>' + opts + '</select>' : '') + nav +
+    '</div><div class="content-html content-book">' + data.html + '</div>';
+
+  function go(n, id) {
+    if (n === chapter) { var el = id && document.getElementById(id); if (el) el.scrollIntoView(); else if (!id) viewer.scrollTop = 0; return; }
+    stopTracking();
+    fetch('/api/render?path=' + encodeURIComponent(node.path) + '&chapter=' + n).then(function(r) { return r.json(); })
+      .then(function(d) { if (d.error) throw new Error(d.error); showBook(viewer, node, d, id); })
+      .catch(function(e) { viewer.innerHTML = '<div class="error-msg">&#9888; ' + esc(e.message) + '</div>'; });
+  }
+  var toc = viewer.querySelector('.toc');
+  if (toc) toc.addEventListener('change', function() {
+    var v = toc.value.split('|');
+    toc.value = '';
+    if (v.length === 2) go(+v[0], v[1]);
+  });
+  Array.prototype.forEach.call(viewer.querySelectorAll('.chapter-nav button'), function(b) {
+    b.addEventListener('click', function() { go(chapter + +b.getAttribute('data-step'), ''); });
+  });
+  viewer.querySelector('.content-book').addEventListener('click', function(e) {
+    var a = e.target.closest('a[href^="#epub/"]');
+    if (!a) return;
+    e.preventDefault();
+    var p = a.getAttribute('href').split('/');
+    go(+p[1], p.slice(2).join('/') ? 'epub-' + p.slice(2).join('/') : '');
+  });
+  trackPosition(viewer, posKey(node), chapter, frag);
+}
+
+function posKey(node) { return 'folium-pos:' + document.getElementById('dirLabel').textContent + '/' + node.path; }
+function readPos(key) {
+  var p = null;
+  try { p = JSON.parse(localStorage.getItem(key)); } catch(e) {}
+  if (typeof p === 'number') return { c: 0, t: p }; // 0.2.x saved a bare fraction
+  return p && typeof p.c === 'number' && typeof p.t === 'number' ? p : { c: 0, t: 0 };
+}
+
+// Remembers the chapter and how far through it the reader is, as a fraction so it survives resizes.
 var stopTracking = function() {};
-function trackPosition(viewer, key) {
-  var saved = 0, timer;
-  try { saved = parseFloat(localStorage.getItem(key)) || 0; } catch(e) {}
-  // Wait for images so scrollHeight is final; always set, or the previous file's offset carries over.
-  var loading = Array.prototype.filter.call(viewer.querySelectorAll('img'), function(i) { return !i.complete; })
-    .map(function(i) { return new Promise(function(r) { i.onload = i.onerror = r; }); });
-  Promise.all(loading).then(function() { viewer.scrollTop = saved * viewer.scrollHeight; });
+function trackPosition(viewer, key, chapter, frag) {
+  var saved = readPos(key), timer;
   function save() {
     clearTimeout(timer);
     timer = setTimeout(function() {
-      try { localStorage.setItem(key, String(viewer.scrollTop / viewer.scrollHeight)); } catch(e) {}
+      try { localStorage.setItem(key, JSON.stringify({ c: chapter, t: viewer.scrollTop / viewer.scrollHeight })); } catch(e) {}
     }, 300);
   }
+  // Wait for images and web fonts so scrollHeight is final; always set, or the previous
+  // file's offset carries over.
+  var loading = Array.prototype.filter.call(viewer.querySelectorAll('img'), function(i) { return !i.complete; })
+    .map(function(i) { return new Promise(function(r) { i.onload = i.onerror = r; }); });
+  if (document.fonts) loading.push(document.fonts.ready);
+  Promise.all(loading).then(function() {
+    var el = frag && document.getElementById(frag);
+    if (el) el.scrollIntoView();
+    else viewer.scrollTop = (saved.c === chapter ? saved.t : 0) * viewer.scrollHeight;
+    save();
+  });
   viewer.addEventListener('scroll', save);
   stopTracking = function() { clearTimeout(timer); viewer.removeEventListener('scroll', save); stopTracking = function() {}; };
 }
