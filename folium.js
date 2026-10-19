@@ -106,7 +106,7 @@ function cleanHtml(html) {
 }
 
 // ─── File tree ────────────────────────────────────────────────────────────────
-const SUPPORTED = new Set([".md",".docx",".doc",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf",".fb2",".fbz",".fb2.zip",".epub"]);
+const SUPPORTED = new Set([".md",".docx",".doc",".odt",".xlsx",".xls",".ods",".csv",".tsv",".txt",".html",".htm",".pdf",".fb2",".fbz",".fb2.zip",".epub"]);
 
 // Like path.extname, but keeps the double extension of zipped FictionBooks.
 function fileExt(name) {
@@ -196,6 +196,23 @@ function parseXml(text) {
   return new DOMParser({ errorHandler: quiet }).parseFromString(text, "text/xml");
 }
 const kids = (el, name) => el ? Array.from(el.childNodes).filter(c => c.nodeType === 1 && (!name || c.localName === name)) : [];
+
+// Plain text of an OpenDocument text file: paragraphs and headings one per line.
+async function readOdtText(abs) {
+  const entry = (await req("jszip").loadAsync(fs.readFileSync(abs))).file("content.xml");
+  if (!entry) throw new Error("Not an OpenDocument text file");
+  let out = "";
+  const walk = node => {
+    if (node.nodeType === 3) { out += node.data; return; }
+    if (node.localName === "s") { out += " ".repeat(+node.getAttribute("text:c") || 1); return; }
+    if (node.localName === "tab") { out += "\t"; return; }
+    if (node.localName === "line-break") { out += "\n"; return; }
+    for (const c of Array.from(node.childNodes || [])) walk(c);
+    if (node.localName === "p" || node.localName === "h") out += "\n";
+  };
+  walk(parseXml(await entry.async("string")).documentElement);
+  return out;
+}
 
 async function readFb2(abs, ext) {
   let buf = fs.readFileSync(abs);
@@ -436,14 +453,15 @@ async function renderFile(filePath, chapter) {
     const result = await mammoth.convertToHtml({ path: abs });
     return { html: cleanHtml(result.value), type:"html" };
   }
-  if (ext === ".doc") {
-    // Old binary Word: macOS's textutil keeps tables and formatting; elsewhere, plain text.
+  if (ext === ".doc" || ext === ".odt") {
+    // Old binary Word and OpenDocument text: macOS's textutil keeps tables and formatting; elsewhere, plain text.
     if (process.platform === "darwin") {
       const html = await new Promise((resolve, reject) =>
         execFile("/usr/bin/textutil", ["-convert", "html", "-stdout", abs], { maxBuffer: 64 << 20, timeout: 30000 },
-          (err, out) => err ? reject(new Error("Couldn't convert this Word document")) : resolve(out)));
+          (err, out) => err ? reject(new Error("Couldn't convert this document")) : resolve(out)));
       return { html: cleanHtml(html), type:"html" };
     }
+    if (ext === ".odt") return { html: "<pre class=\"txt\">" + escHtml(await readOdtText(abs)) + "</pre>", type:"html" };
     const WordExtractor = req("wordExtractor");
     const doc = await new WordExtractor().extract(abs);
     return { html: "<pre class=\"txt\">" + escHtml(doc.getBody()) + "</pre>", type:"html" };
@@ -666,7 +684,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'IBM Pl
   background:var(--muted);color:var(--text-dim);
 }
 .ext-md  {background:var(--accent-bg);color:var(--accent)}
-.ext-docx,.ext-doc{background:rgba(107,140,255,.12);color:var(--accent2)}
+.ext-docx,.ext-doc,.ext-odt{background:rgba(107,140,255,.12);color:var(--accent2)}
 .ext-xlsx,.ext-xls,.ext-ods{background:rgba(74,210,90,.1);color:#2a9e3a}
 [data-theme="light"] .ext-xlsx,[data-theme="light"] .ext-xls,[data-theme="light"] .ext-ods{color:#1d7a2e}
 .ext-csv,.ext-tsv{background:rgba(240,160,74,.1);color:var(--warn)}
@@ -1111,7 +1129,7 @@ var sortKey = 'name';   // 'name' | 'type' | 'date'
 var sortDir = 1;        // 1 = asc, -1 = desc
 var cachedTree = null;
 
-var EXT_ORDER = { md:0, docx:1, doc:1, pdf:1, fb2:1, fbz:1, 'fb2.zip':1, epub:1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
+var EXT_ORDER = { md:0, docx:1, doc:1, odt:1, pdf:1, fb2:1, fbz:1, 'fb2.zip':1, epub:1, xlsx:2, xls:2, ods:2, csv:3, tsv:3, html:4, htm:4, txt:5 };
 
 function getSort() {
   try {
@@ -1210,7 +1228,7 @@ async function loadTree() {
   renderTree(applySort(tree), treeEl);
 }
 
-var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', doc:'&#128196;', pdf:'&#128213;', fb2:'&#128214;', fbz:'&#128214;', 'fb2.zip':'&#128214;', epub:'&#128214;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
+var EXT_ICONS = { md:'&#128221;', docx:'&#128196;', doc:'&#128196;', odt:'&#128196;', pdf:'&#128213;', fb2:'&#128214;', fbz:'&#128214;', 'fb2.zip':'&#128214;', epub:'&#128214;', xlsx:'&#128202;', xls:'&#128202;', ods:'&#128202;', csv:'&#128203;', tsv:'&#128203;', txt:'&#128221;', html:'&#127760;', htm:'&#127760;' };
 
 function renderTree(nodes, container) {
   nodes.forEach(function(node) {

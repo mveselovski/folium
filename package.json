@@ -1,7 +1,7 @@
 {
   "name": "folium",
   "version": "0.3.1",
-  "description": "Local document browser for md, docx, doc, xlsx, xls, ods, csv, tsv, pdf, epub, fb2, html and txt files",
+  "description": "Local document browser for md, docx, doc, odt, xlsx, xls, ods, csv, tsv, pdf, epub, fb2, html and txt files",
   "main": "folium.js",
   "bin": {
     "folium": "./folium.js"
