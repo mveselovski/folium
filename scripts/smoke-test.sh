@@ -21,6 +21,11 @@ printf '<html><body><p>Розділ один <img src="p.png"/></p></body></html
 printf '<html><body><p>Розділ два</p></body></html>' > "$E/OEBPS/b.xhtml"
 printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' | base64 -d > "$E/OEBPS/p.png"
 (cd "$E" && zip -qX "$DIR/book.epub" mimetype META-INF/container.xml OEBPS/*)
+O="$DIR/odt-src" && mkdir -p "$O/META-INF"
+printf 'application/vnd.oasis.opendocument.text' > "$O/mimetype"
+printf '<?xml version="1.0"?><manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2"><manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.text"/><manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/></manifest:manifest>' > "$O/META-INF/manifest.xml"
+printf '<?xml version="1.0"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:text><text:h>Звіт</text:h><text:p>Добрий<text:s/>день</text:p></office:text></office:body></office:document-content>' > "$O/content.xml"
+(cd "$O" && zip -qX0 "$DIR/test.odt" mimetype && zip -qX "$DIR/test.odt" META-INF/manifest.xml content.xml)
 cp "$(dirname "$0")/fixtures/sample.doc" "$DIR/sample.doc"
 # A sibling folder whose name starts with the served folder's name must stay unreachable.
 mkdir -p "${DIR}-private" && echo secret > "${DIR}-private/secret.txt"
@@ -39,6 +44,7 @@ curl -fsS "${R}test.tsv" | grep -q '>2,5<'                        || fail "tsv"
 curl -fsS "${R}book.fb2" | grep -q 'Збірка'                       || fail "fb2"
 curl -fsS "${R}book.fbz" | grep -q 'Їжачок є'                     || fail "fbz"
 curl -fsS "${R}sample.doc" | grep -q 'Рахунок'                    || fail "doc"
+curl -fsS "${R}test.odt" | grep -q 'Добрий день'                || fail "odt"
 curl -fsS "${R}book.epub&chapter=1" | grep -q 'Розділ два'      || fail "epub"
 [[ "$(curl -fsS -o /dev/null -w '%{content_type}' "$BASE/api/epub-asset?path=book.epub&entry=OEBPS/p.png")" == image/png ]] || fail "epub image"
 [[ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example' "$BASE/api/files")" == 403 ]] || fail "foreign Host header accepted"
